@@ -24,6 +24,14 @@ struct BarcodeResultSheet: View {
     @State private var mealType: MealType = .snack
     @State private var date: Date = .now
     @State private var dataSource: DataSource = .api
+    /// Source of truth for the unit toggle. Initialised from
+    /// `food.unit` (which carries the OFF detection result) on load,
+    /// then user-controllable via the segmented picker. Drives
+    /// `unit` everywhere it's displayed; macros recompute via
+    /// `food.macros(forGrams:)` against the current `grams` value
+    /// regardless of toggle state (per-100 base unit is fixed by
+    /// the OFF data; the toggle only relabels the quantity).
+    @State private var selectedUnit: String = "g"
 
     enum Phase {
         case loading
@@ -42,7 +50,7 @@ struct BarcodeResultSheet: View {
         }
     }
 
-    private var unit: String { food?.unit ?? "g" }
+    private var unit: String { selectedUnit }
 
     private var macros: (kcal: Double, protein: Double, carbs: Double, fat: Double) {
         food?.macros(forGrams: grams) ?? (0, 0, 0, 0)
@@ -164,11 +172,11 @@ struct BarcodeResultSheet: View {
                 .font(.caption2.monospaced())
                 .foregroundStyle(.tertiary)
 
-            HStack(spacing: 0) {
-                per100Tile(value: SafeFormat.int(food.kcalPer100g),                 label: "kcal")
-                per100Tile(value: String(format: "%.1fg", food.proteinPer100g),      label: "P")
-                per100Tile(value: String(format: "%.1fg", food.carbsPer100g),        label: "C")
-                per100Tile(value: String(format: "%.1fg", food.fatPer100g),          label: "F")
+            HStack(alignment: .top, spacing: 8) {
+                per100Tile("\(SafeFormat.int(food.kcalPer100g)) kcal")
+                per100Tile(String(format: "%.1fg Protein", food.proteinPer100g))
+                per100Tile(String(format: "%.1fg Carbs",   food.carbsPer100g))
+                per100Tile(String(format: "%.1fg Fat",     food.fatPer100g))
             }
             .padding(.top, 6)
 
@@ -181,15 +189,15 @@ struct BarcodeResultSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func per100Tile(value: String, label: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.subheadline.monospacedDigit().weight(.semibold))
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
+    /// Inline tile: full word labels ("Protein", "Carbs", "Fat") next
+    /// to the value in a single Text so wrapping is per-tile when the
+    /// row is too narrow. lineLimit unset — never truncate.
+    private func per100Tile(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var quantityRow: some View {
@@ -202,6 +210,12 @@ struct BarcodeResultSheet: View {
                     .font(.title3)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Picker("Unit", selection: $selectedUnit) {
+                    Text("g").tag("g")
+                    Text("ml").tag("ml")
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 100)
             }
             Slider(value: $grams, in: 10...800, step: 5)
         }
@@ -250,6 +264,7 @@ struct BarcodeResultSheet: View {
         if let cached, cached.lastUsed >= cacheCutoff {
             print("BarcodeResultSheet: cache hit for \(barcode).")
             cached.lastUsed = .now
+            let resolvedUnit = cached.unit.isEmpty ? "g" : cached.unit
             food = ScannedFood(
                 barcode: cached.barcode,
                 name: cached.name,
@@ -258,8 +273,9 @@ struct BarcodeResultSheet: View {
                 proteinPer100g: cached.proteinPer100g,
                 carbsPer100g: cached.carbsPer100g,
                 fatPer100g: cached.fatPer100g,
-                unit: cached.unit.isEmpty ? "g" : cached.unit
+                unit: resolvedUnit
             )
+            selectedUnit = resolvedUnit
             dataSource = .cache
             phase = .ready
             return
@@ -270,6 +286,7 @@ struct BarcodeResultSheet: View {
             let fetched = try await OpenFoodFactsService.fetch(barcode: barcode)
             print("DEBUG fetched: name=\(fetched.name) kcal=\(fetched.kcalPer100g) protein=\(fetched.proteinPer100g) carbs=\(fetched.carbsPer100g) fat=\(fetched.fatPer100g) unit=\(fetched.unit)")
             food = fetched
+            selectedUnit = fetched.unit
             dataSource = .api
             phase = .ready
             upsertCacheFromFetch(fetched, existing: cached)
