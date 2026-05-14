@@ -9,8 +9,8 @@ iOS 26.4+. SwiftUI, SwiftData, HealthKit. Pre-1.0; no public release.
 ```
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project Index/Index.xcodeproj \
-  -scheme Index \
-  -destination 'generic/platform=iOS Simulator' \
+  -target Index \
+  -sdk iphonesimulator26.5 \
   -configuration Debug build
 ```
 

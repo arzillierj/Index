@@ -9,14 +9,16 @@ Read this before changing anything. The product overview lives in `CONTEXT.md`.
 ```
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project /Users/yannis/Index/Index/Index.xcodeproj \
-  -scheme Index \
-  -destination 'generic/platform=iOS Simulator' \
+  -target Index \
+  -sdk iphonesimulator26.5 \
   -configuration Debug build
 ```
 
+The Xcode-26.4.1 SDK is `iphonesimulator26.5` even though the runtime installed is iOS 26.4 — `xcodebuild -showsdks` confirms. Using `-target` (not `-scheme`) plus explicit `-sdk` bypasses destination resolution, which otherwise gets confused when a real iPhone is plugged in with an unbuilt iOS version (e.g. iOS 26.5 device, 26.4 host SDK).
+
 Build clean **before every commit**. If the build breaks, fix it before moving on. Don't accumulate broken builds.
 
-Booted simulator on this machine: iPhone 17 (`855AD901-D9B5-449E-B5C9-6FB99C49BF82`) — swap `generic/platform=iOS Simulator` for `id=…` if you need to run the app instead of just compile.
+To actually launch the app on a simulator, boot one and use a `-destination 'id=<UDID>'` form instead.
 
 ## Project layout
 
