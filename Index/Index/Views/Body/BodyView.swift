@@ -162,6 +162,16 @@ struct BodyView: View {
                     .interpolationMethod(.monotone)
                 }
             }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day, count: chartStrideDays(series))) { _ in
+                    AxisGridLine()
+                    AxisTick()
+                    // Always show date-only, abbreviated month. Without an
+                    // explicit format Swift Charts auto-scales to hours
+                    // when the data range is short ("12 May at 23").
+                    AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                }
+            }
             .frame(height: 180)
         } else {
             Text("Log more weights to see your trend.")
@@ -172,6 +182,16 @@ struct BodyView: View {
                 .background(Color(.secondarySystemBackground))
                 .clipShape(.rect(cornerRadius: 12))
         }
+    }
+
+    /// Day-stride between x-axis ticks, scaled to aim for ~4 ticks across
+    /// the visible range. Prevents truncated labels at short ranges
+    /// (where every-day ticks would crowd) and at long ranges (where
+    /// every-day ticks would overflow).
+    private func chartStrideDays(_ series: [WeightEntry]) -> Int {
+        guard let first = series.first, let last = series.last else { return 1 }
+        let days = max(1, Int(last.date.timeIntervalSince(first.date) / 86400))
+        return max(1, days / 4)
     }
 
     // MARK: - Metrics grid
@@ -270,23 +290,42 @@ struct BodyView: View {
                     .background(Color(.secondarySystemBackground))
                     .clipShape(.rect(cornerRadius: 12))
             } else {
-                VStack(spacing: 0) {
-                    ForEach(weights.prefix(5)) { entry in
-                        Button {
-                            selectedEntry = entry
-                        } label: {
-                            recentEntryRow(entry: entry)
-                        }
-                        .buttonStyle(.plain)
-                        if entry.persistentModelID != weights.prefix(5).last?.persistentModelID {
-                            Divider().padding(.leading, 12)
-                        }
-                    }
-                }
-                .background(Color(.secondarySystemBackground))
-                .clipShape(.rect(cornerRadius: 12))
+                recentEntriesList
             }
         }
+    }
+
+    /// List wrapper that gives recent entries swipe-to-delete behavior
+    /// matching the full-history screen. The List is scroll-disabled and
+    /// sized to its rows so it nests cleanly in the outer ScrollView
+    /// — .swipeActions is a List-only modifier, so we can't use a plain
+    /// VStack here.
+    private var recentEntriesList: some View {
+        let recent = Array(weights.prefix(5))
+        return List {
+            ForEach(recent) { entry in
+                Button {
+                    selectedEntry = entry
+                } label: {
+                    recentEntryRow(entry: entry)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(Color(.secondarySystemBackground))
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        entry.deletedFromIndex = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollDisabled(true)
+        .scrollContentBackground(.hidden)
+        .frame(height: CGFloat(recent.count) * 64)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     private func recentEntryRow(entry: WeightEntry) -> some View {
