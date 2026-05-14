@@ -55,8 +55,7 @@ struct FitnessMainView: View {
             LogActivitySheet(onSelect: handleActivityChoice)
         }
         .sheet(isPresented: $showLogCycling) {
-            // P5.20 replaces this with the real LogCyclingSheet.
-            placeholderSheet("LogCyclingSheet", "Coming in P5.20.")
+            LogCyclingSheet()
         }
         .sheet(item: $logOtherPreset) { preset in
             // P5.21 replaces this with the real LogOtherWorkoutSheet.

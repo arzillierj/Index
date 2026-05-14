@@ -46,6 +46,11 @@ final class WorkoutSession {
     var hasMaxHeartRate: Bool = false
     var distanceKm: Double = 0
     var hasDistance: Bool = false
+    /// 1–5 perceived exertion; only meaningful when hasIntensity is true.
+    /// HK auto-imported workouts leave hasIntensity = false — the Watch
+    /// doesn't capture RPE.
+    var intensity: Int = 0
+    var hasIntensity: Bool = false
     var sourceRaw: String = WorkoutSourceKind.manual.rawValue
     var notes: String = ""
     /// Tombstone for HK auto-import dedup — predicates do NOT filter on this.
@@ -65,6 +70,8 @@ final class WorkoutSession {
         hasMaxHeartRate: Bool = false,
         distanceKm: Double = 0,
         hasDistance: Bool = false,
+        intensity: Int = 0,
+        hasIntensity: Bool = false,
         source: WorkoutSourceKind = .manual,
         notes: String = "",
         deletedFromIndex: Bool = false,
@@ -81,6 +88,8 @@ final class WorkoutSession {
         self.hasMaxHeartRate = hasMaxHeartRate
         self.distanceKm = distanceKm
         self.hasDistance = hasDistance
+        self.intensity = intensity
+        self.hasIntensity = hasIntensity
         self.sourceRaw = source.rawValue
         self.notes = notes
         self.deletedFromIndex = deletedFromIndex
