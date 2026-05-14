@@ -25,6 +25,9 @@ struct FitnessMainView: View {
     private var dailyMetrics: [DailyHealthMetrics]
 
     @State private var showLogSheet = false
+    @State private var showLogCycling = false
+    @State private var logOtherPreset: WorkoutType? = nil
+    @State private var showActiveStrength = false
 
     private var profile: Profile? { profileService.activeProfile }
 
@@ -49,15 +52,60 @@ struct FitnessMainView: View {
             }
         }
         .sheet(isPresented: $showLogSheet) {
-            // P5.19 replaces this with the real LogActivitySheet.
+            LogActivitySheet(onSelect: handleActivityChoice)
+        }
+        .sheet(isPresented: $showLogCycling) {
+            // P5.20 replaces this with the real LogCyclingSheet.
+            placeholderSheet("LogCyclingSheet", "Coming in P5.20.")
+        }
+        .sheet(item: $logOtherPreset) { preset in
+            // P5.21 replaces this with the real LogOtherWorkoutSheet.
+            placeholderSheet("LogOtherWorkoutSheet", "Preset: \(preset.label). Coming in P5.21.")
+        }
+        .fullScreenCover(isPresented: $showActiveStrength) {
+            // P5.23 replaces this with the real ActiveStrengthSessionView.
+            placeholderFullScreen("ActiveStrengthSessionView", "Coming in P5.23.")
+        }
+    }
+
+    private func placeholderSheet(_ title: String, _ subtitle: String) -> some View {
+        VStack(spacing: 12) {
+            Text(title).font(.title2.weight(.semibold))
+            Text(subtitle).font(.footnote).foregroundStyle(.secondary)
+        }
+        .padding()
+        .presentationDetents([.medium])
+    }
+
+    private func placeholderFullScreen(_ title: String, _ subtitle: String) -> some View {
+        NavigationStack {
             VStack(spacing: 12) {
-                Text("Activity picker").font(.title2.weight(.semibold))
-                Text("Coming in P5.19.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Text(title).font(.title2.weight(.semibold))
+                Text(subtitle).font(.footnote).foregroundStyle(.secondary)
             }
-            .padding()
-            .presentationDetents([.medium])
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { showActiveStrength = false }
+                }
+            }
+        }
+    }
+
+    /// Routes a LogDestination from LogActivitySheet to the appropriate
+    /// sheet or fullScreenCover. Dismissal of the picker is deferred via
+    /// a MainActor hop so SwiftUI processes the dismiss before the next
+    /// presentation triggers; otherwise iOS can drop the second sheet.
+    private func handleActivityChoice(_ dest: LogDestination) {
+        showLogSheet = false
+        Task { @MainActor in
+            switch dest {
+            case .strength: showActiveStrength = true
+            case .cycling:  showLogCycling = true
+            case .running:  logOtherPreset = .running
+            case .swimming: logOtherPreset = .swimming
+            case .squash:   logOtherPreset = .squash
+            case .other:    logOtherPreset = .other
+            }
         }
     }
 
