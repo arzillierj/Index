@@ -25,9 +25,6 @@ struct BodyView: View {
 
     @State private var showLogSheet = false
     @State private var selectedEntry: WeightEntry? = nil
-    @State private var alertTitle: String = ""
-    @State private var alertMessage: String = ""
-    @State private var showAlert = false
 
     private var profile: Profile? { profileService.activeProfile }
 
@@ -58,11 +55,6 @@ struct BodyView: View {
         }
         .sheet(item: $selectedEntry) { entry in
             WeightEntryDetailSheet(entry: entry)
-        }
-        .alert(alertTitle, isPresented: $showAlert) {
-            Button("OK") {}
-        } message: {
-            Text(alertMessage)
         }
     }
 
@@ -206,12 +198,12 @@ struct BodyView: View {
                 columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
                 spacing: 10
             ) {
-                tile(label: "BMI", value: bmiText, unit: nil) { showBMIInfo() }
-                tile(label: "BMR", value: bmrText, unit: "kcal") { showBMRInfo() }
-                tile(label: "TDEE", value: tdeeText, unit: "kcal") { showTDEEInfo() }
-                tile(label: "Body fat", value: bodyFatText, unit: bodyFatText == "—" ? nil : "%") { showBodyFatInfo() }
-                tile(label: "Lean mass", value: leanMassText, unit: leanMassText == "—" ? nil : "kg") { showLeanMassInfo() }
-                tile(label: "Ideal range", value: idealRangeText, unit: "kg") { showIdealRangeInfo() }
+                tile(label: "BMI", value: bmiText, unit: nil)
+                tile(label: "BMR", value: bmrText, unit: "kcal")
+                tile(label: "TDEE", value: tdeeText, unit: "kcal")
+                tile(label: "Body fat", value: bodyFatText, unit: bodyFatText == "—" ? nil : "%")
+                tile(label: "Lean mass", value: leanMassText, unit: leanMassText == "—" ? nil : "kg")
+                tile(label: "Ideal range", value: idealRangeText, unit: "kg")
             }
         }
     }
@@ -226,42 +218,41 @@ struct BodyView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
                 spacing: 10
             ) {
-                tile(label: "HRV", value: hrvText, unit: hrvText == "—" ? nil : "ms") { showHRVInfo() }
-                tile(label: "VO2 max", value: vo2Text, unit: nil) { showVO2Info() }
-                tile(label: "Resting HR", value: rhrText, unit: rhrText == "—" ? nil : "bpm") { showRHRInfo() }
+                tile(label: "HRV", value: hrvText, unit: hrvText == "—" ? nil : "ms")
+                tile(label: "VO2 max", value: vo2Text, unit: nil)
+                tile(label: "Resting HR", value: rhrText, unit: rhrText == "—" ? nil : "bpm")
             }
         }
     }
 
+    /// Display-only tile. Metric explanation overlays were explicitly cut
+    /// from v2 (see CLAUDE.md "Things explicitly NOT in v1"). The value
+    /// speaks for itself; no tap target.
     private func tile(
         label: String,
         value: String,
-        unit: String?,
-        onTap: @escaping () -> Void
+        unit: String?
     ) -> some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(value)
-                        .font(.title3.monospacedDigit())
-                        .foregroundStyle(.primary)
-                    if let unit {
-                        Text(unit)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(.title3.monospacedDigit())
+                    .foregroundStyle(.primary)
+                if let unit {
+                    Text(unit)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 14)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(.rect(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 14)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Recent entries
@@ -460,68 +451,4 @@ struct BodyView: View {
         return f.string(from: d)
     }
 
-    // MARK: - Metric explanations (formula citations)
-
-    private func explain(_ title: String, _ message: String) {
-        alertTitle = title
-        alertMessage = message
-        showAlert = true
-    }
-
-    private func showBMIInfo() {
-        explain("BMI", "Body Mass Index = weight (kg) ÷ height² (m²). WHO 1995 categories.")
-    }
-
-    private func showBMRInfo() {
-        explain("BMR — Mifflin-St Jeor",
-                "Basal Metabolic Rate.\nMale: 10W + 6.25H − 5A + 5\nFemale: 10W + 6.25H − 5A − 161\nMifflin et al., Am J Clin Nutr 51(2):241–247, 1990.")
-    }
-
-    private func showTDEEInfo() {
-        explain("TDEE",
-                "Total Daily Energy Expenditure = BMR × Harris-Benedict activity multiplier. McArdle 2010.")
-    }
-
-    private func showBodyFatInfo() {
-        if let entry = weights.first, entry.hasBodyFat {
-            let src = entry.source == .renpho
-                ? "From RENPHO via Apple Health."
-                : "From Apple Health."
-            explain("Body fat %", src)
-        } else {
-            explain("Body fat %", "No reading yet. RENPHO writes body fat to Apple Health on each weigh-in.")
-        }
-    }
-
-    private func showLeanMassInfo() {
-        if let entry = weights.first, entry.hasLeanMass {
-            let src = entry.source == .renpho
-                ? "From RENPHO via Apple Health."
-                : "From Apple Health."
-            explain("Lean mass", src)
-        } else {
-            explain("Lean mass — Boer 1984",
-                    "Male: 0.407W + 0.267H − 19.2\nFemale: 0.252W + 0.473H − 48.3\nBoer P, J Appl Physiol 57(4):1186–1190, 1984. Shown as an estimate until a scale reports a measured value.")
-        }
-    }
-
-    private func showIdealRangeInfo() {
-        explain("Ideal range — Devine 1974",
-                "50 + 2.3 × (height − 60 in) for men; 45.5 + 2.3 × (height − 60 in) for women. ±10% range. Devine BJ, Drug Intell Clin Pharm 8:650–655, 1974.")
-    }
-
-    private func showHRVInfo() {
-        explain("HRV (SDNN)",
-                "Standard deviation of beat-to-beat intervals during overnight sleep. From Apple Health.")
-    }
-
-    private func showVO2Info() {
-        explain("VO2 max",
-                "Cardio-fitness estimate in mL/(kg·min). From Apple Health.")
-    }
-
-    private func showRHRInfo() {
-        explain("Resting heart rate",
-                "Average resting BPM measured by Apple Watch. From Apple Health.")
-    }
 }
