@@ -93,10 +93,10 @@ struct WorkoutDetailView: View {
                 statTile(label: "Max HR", value: "\(session.maxHeartRate)", unit: "bpm")
             }
             if session.hasKcal {
-                statTile(label: "Energy", value: "\(Int(session.kcalBurned.rounded()))", unit: "kcal")
+                statTile(label: "Energy", value: SafeFormat.int(session.kcalBurned), unit: "kcal")
             }
             if session.hasDistance {
-                statTile(label: "Distance", value: formatDistance(session.distanceKm), unit: "km")
+                statTile(label: "Distance", value: SafeFormat.decimal(session.distanceKm), unit: "km")
             }
         }
     }
@@ -191,10 +191,6 @@ struct WorkoutDetailView: View {
         if h > 0 && m > 0 { return "\(h)h \(m)m" }
         if h > 0 { return "\(h)h" }
         return "\(m)m"
-    }
-
-    private func formatDistance(_ km: Double) -> String {
-        km == floor(km) ? "\(Int(km))" : String(format: "%.1f", km)
     }
 
     private func absoluteDateString(_ d: Date) -> String {

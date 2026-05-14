@@ -1,9 +1,11 @@
 import SwiftUI
 import SwiftData
 
-/// Edit / delete an existing WeightEntry. Delete sets
-/// `deletedFromIndex = true` and intentionally does NOT delete from Apple
-/// Health (HK is treated as a peer store; the v0 audit pattern).
+/// Edit / delete an existing WeightEntry. Same range guards as
+/// LogWeightSheet (weight 20–300 kg, body fat 0–60%, lean mass 20–200 kg)
+/// so a stored row can't be re-saved with an obviously bad value. Delete
+/// sets `deletedFromIndex = true` and intentionally does NOT delete from
+/// Apple Health (HK is a peer store; the v0 audit pattern).
 ///
 /// Edits are held in local draft state until Save so Cancel reliably
 /// rolls back — SwiftData auto-saves on @Bindable mutation, so binding
@@ -27,9 +29,38 @@ struct WeightEntryDetailSheet: View {
         case weight, bodyFat, leanMass, notes
     }
 
-    private var parsedWeightKg: Double? {
-        let v = Double(weightText.replacingOccurrences(of: ",", with: "."))
-        return (v.map { $0 > 0 } == true) ? v : nil
+    private static let weightRangeKg: ClosedRange<Double> = 20...300
+    private static let bodyFatRangePct: ClosedRange<Double> = 0...60
+    private static let leanMassRangeKg: ClosedRange<Double> = 20...200
+
+    private var weightValidation: FieldValidation {
+        FieldValidation(
+            text: weightText,
+            range: Self.weightRangeKg,
+            errorMessage: "Weight must be between 20 and 300 kg"
+        )
+    }
+
+    private var bodyFatValidation: FieldValidation {
+        FieldValidation(
+            text: bodyFatText,
+            range: Self.bodyFatRangePct,
+            errorMessage: "Body fat must be between 0 and 60%"
+        )
+    }
+
+    private var leanMassValidation: FieldValidation {
+        FieldValidation(
+            text: leanMassText,
+            range: Self.leanMassRangeKg,
+            errorMessage: "Lean mass must be between 20 and 200 kg"
+        )
+    }
+
+    private var canSave: Bool {
+        weightValidation.parsedInRange != nil
+            && bodyFatValidation.error == nil
+            && leanMassValidation.error == nil
     }
 
     private var sourceCaption: String {
@@ -50,6 +81,9 @@ struct WeightEntryDetailSheet: View {
                             .focused($focusedField, equals: .weight)
                         Text("kg").foregroundStyle(.secondary)
                     }
+                    if let err = weightValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
+                    }
                     DatePicker(
                         "Date",
                         selection: $date,
@@ -69,11 +103,17 @@ struct WeightEntryDetailSheet: View {
                             .focused($focusedField, equals: .bodyFat)
                         Text("%").foregroundStyle(.secondary)
                     }
+                    if let err = bodyFatValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
+                    }
                     HStack {
                         TextField("Lean mass", text: $leanMassText)
                             .keyboardType(.decimalPad)
                             .focused($focusedField, equals: .leanMass)
                         Text("kg").foregroundStyle(.secondary)
+                    }
+                    if let err = leanMassValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
                     }
                 }
 
@@ -102,7 +142,7 @@ struct WeightEntryDetailSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
-                        .disabled(parsedWeightKg == nil)
+                        .disabled(!canSave)
                 }
             }
             .onAppear(perform: populate)
@@ -120,24 +160,24 @@ struct WeightEntryDetailSheet: View {
     }
 
     private func populate() {
-        weightText = formatKg(entry.weightKg)
-        bodyFatText = entry.hasBodyFat ? String(format: "%.1f", entry.bodyFatPercent) : ""
-        leanMassText = entry.hasLeanMass ? formatKg(entry.leanMassKg) : ""
+        weightText = SafeFormat.decimal(entry.weightKg)
+        bodyFatText = entry.hasBodyFat ? SafeFormat.percent(entry.bodyFatPercent) : ""
+        leanMassText = entry.hasLeanMass ? SafeFormat.decimal(entry.leanMassKg) : ""
         notes = entry.notes
         date = entry.date
     }
 
     private func save() {
-        guard let weightKg = parsedWeightKg else { return }
+        guard let weightKg = weightValidation.parsedInRange else { return }
         entry.weightKg = weightKg
         entry.date = date
         entry.notes = notes
 
-        let bf = Double(bodyFatText.replacingOccurrences(of: ",", with: "."))
+        let bf = bodyFatValidation.parsedInRange
         entry.bodyFatPercent = bf ?? 0
         entry.hasBodyFat = bf != nil
 
-        let lm = Double(leanMassText.replacingOccurrences(of: ",", with: "."))
+        let lm = leanMassValidation.parsedInRange
         entry.leanMassKg = lm ?? 0
         entry.hasLeanMass = lm != nil
 
@@ -145,14 +185,7 @@ struct WeightEntryDetailSheet: View {
     }
 
     private func deleteEntry() {
-        // Soft-delete only. The row remains in SwiftData so HK
-        // dedup-on-re-import predicates still find it (the v0 tombstone
-        // contract). Apple Health is intentionally untouched.
         entry.deletedFromIndex = true
         dismiss()
-    }
-
-    private func formatKg(_ kg: Double) -> String {
-        kg == floor(kg) ? "\(Int(kg))" : String(format: "%.1f", kg)
     }
 }

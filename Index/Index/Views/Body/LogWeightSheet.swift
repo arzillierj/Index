@@ -1,9 +1,15 @@
 import SwiftUI
 import SwiftData
 
-/// Manual weight entry. Body fat % and lean mass are optional (leave blank
-/// to mark them as not provided). Save inserts a WeightEntry with
-/// source: .manual and mirrors the weight value to Apple Health.
+/// Manual weight entry with input guard rails. Weight is required and must
+/// fall in 20–300 kg. Body fat % (0–60) and lean mass (20–200 kg) are
+/// optional but, when entered, must be in range — Save stays disabled
+/// otherwise and an inline error renders beneath the field.
+///
+/// The 2026-05-14 corruption incident (weight ~5×10³⁸ kg) was traced to
+/// either upstream HK noise or accidental keystroke runaway; the
+/// validation here is the floor that keeps obviously-bad values out of
+/// the SwiftData store.
 struct LogWeightSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -26,17 +32,40 @@ struct LogWeightSheet: View {
         case weight, bodyFat, leanMass, notes
     }
 
-    private var parsedWeightKg: Double? {
-        let v = Double(weightText.replacingOccurrences(of: ",", with: "."))
-        return (v.map { $0 > 0 } == true) ? v : nil
+    private static let weightRangeKg: ClosedRange<Double> = 20...300
+    private static let bodyFatRangePct: ClosedRange<Double> = 0...60
+    private static let leanMassRangeKg: ClosedRange<Double> = 20...200
+
+    private var weightValidation: FieldValidation {
+        FieldValidation(
+            text: weightText,
+            range: Self.weightRangeKg,
+            errorMessage: "Weight must be between 20 and 300 kg"
+        )
     }
 
-    private var parsedBodyFat: Double? {
-        Double(bodyFatText.replacingOccurrences(of: ",", with: "."))
+    private var bodyFatValidation: FieldValidation {
+        FieldValidation(
+            text: bodyFatText,
+            range: Self.bodyFatRangePct,
+            errorMessage: "Body fat must be between 0 and 60%"
+        )
     }
 
-    private var parsedLeanMass: Double? {
-        Double(leanMassText.replacingOccurrences(of: ",", with: "."))
+    private var leanMassValidation: FieldValidation {
+        FieldValidation(
+            text: leanMassText,
+            range: Self.leanMassRangeKg,
+            errorMessage: "Lean mass must be between 20 and 200 kg"
+        )
+    }
+
+    private var canSave: Bool {
+        // Weight is required AND in range. Optional fields, when entered,
+        // must also be in range.
+        weightValidation.parsedInRange != nil
+            && bodyFatValidation.error == nil
+            && leanMassValidation.error == nil
     }
 
     var body: some View {
@@ -48,6 +77,9 @@ struct LogWeightSheet: View {
                             .keyboardType(.decimalPad)
                             .focused($focusedField, equals: .weight)
                         Text("kg").foregroundStyle(.secondary)
+                    }
+                    if let err = weightValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
                     }
                     DatePicker(
                         "Date",
@@ -64,11 +96,17 @@ struct LogWeightSheet: View {
                             .focused($focusedField, equals: .bodyFat)
                         Text("%").foregroundStyle(.secondary)
                     }
+                    if let err = bodyFatValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
+                    }
                     HStack {
                         TextField("Lean mass", text: $leanMassText)
                             .keyboardType(.decimalPad)
                             .focused($focusedField, equals: .leanMass)
                         Text("kg").foregroundStyle(.secondary)
+                    }
+                    if let err = leanMassValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
                     }
                 } header: {
                     Text("Body composition")
@@ -90,7 +128,7 @@ struct LogWeightSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
-                        .disabled(parsedWeightKg == nil)
+                        .disabled(!canSave)
                 }
             }
             .onAppear(perform: prefill)
@@ -98,22 +136,18 @@ struct LogWeightSheet: View {
     }
 
     private func prefill() {
-        // Default to the most recent weight so the user sees a sensible
-        // starting value instead of an empty field.
         if let last = existingEntries.first, weightText.isEmpty {
-            weightText = formatKg(last.weightKg)
+            weightText = SafeFormat.decimal(last.weightKg)
         }
-        // Race-free focus: hop through MainActor so SwiftUI has installed
-        // the TextField before the focus assignment lands.
         Task { @MainActor in
             focusedField = .weight
         }
     }
 
     private func save() {
-        guard let weightKg = parsedWeightKg else { return }
-        let bodyFat = parsedBodyFat
-        let leanMass = parsedLeanMass
+        guard let weightKg = weightValidation.parsedInRange else { return }
+        let bodyFat = bodyFatValidation.parsedInRange
+        let leanMass = leanMassValidation.parsedInRange
 
         let entry = WeightEntry(
             date: date,
@@ -127,14 +161,46 @@ struct LogWeightSheet: View {
             deletedFromIndex: false
         )
         context.insert(entry)
-        // Mirror weight only to HealthKit. v2 doesn't write body fat / lean
-        // mass back — those flow inbound from the scale (RENPHO writes
-        // them; we just read).
         HealthKitService.saveWeight(kg: weightKg, date: date)
         dismiss()
     }
+}
 
-    private func formatKg(_ kg: Double) -> String {
-        kg == floor(kg) ? "\(Int(kg))" : String(format: "%.1f", kg)
+/// Three-state validation for a single numeric form field.
+///
+///   parsed         — Double if the text parses, regardless of range.
+///   parsedInRange  — Double if the text parses AND falls in `range`.
+///                    Empty input ⇒ nil (treated as "field not provided").
+///   error          — non-nil when the user typed something out of range
+///                    or unparseable. Empty input ⇒ no error.
+struct FieldValidation {
+    let parsed: Double?
+    let parsedInRange: Double?
+    let error: String?
+
+    init(text: String, range: ClosedRange<Double>, errorMessage: String) {
+        let trimmed = text
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        if trimmed.isEmpty {
+            self.parsed = nil
+            self.parsedInRange = nil
+            self.error = nil
+            return
+        }
+        guard let v = Double(trimmed), v.isFinite else {
+            self.parsed = nil
+            self.parsedInRange = nil
+            self.error = errorMessage
+            return
+        }
+        self.parsed = v
+        if range.contains(v) {
+            self.parsedInRange = v
+            self.error = nil
+        } else {
+            self.parsedInRange = nil
+            self.error = errorMessage
+        }
     }
 }

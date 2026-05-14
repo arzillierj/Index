@@ -193,6 +193,6 @@ struct ExerciseDetailView: View {
     }
 
     private func formatKg(_ kg: Double) -> String {
-        kg == floor(kg) ? "\(Int(kg))" : String(format: "%.1f", kg)
+        SafeFormat.decimal(kg)
     }
 }

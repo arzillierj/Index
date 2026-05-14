@@ -352,7 +352,7 @@ struct BodyView: View {
             weightKg: w, heightCm: profile.heightCm,
             age: profile.age, sex: profile.sex
         )
-        return "\(Int(value.rounded()))"
+        return SafeFormat.int(value)
     }
 
     private var tdeeText: String {
@@ -362,7 +362,7 @@ struct BodyView: View {
             age: profile.age, sex: profile.sex
         )
         let value = MetricsEngine.tdee(bmr: bmr, activityLevel: profile.activityLevel)
-        return "\(Int(value.rounded()))"
+        return SafeFormat.int(value)
     }
 
     private var bodyFatText: String {
@@ -390,7 +390,7 @@ struct BodyView: View {
         let range = MetricsEngine.idealWeightRange(
             heightCm: profile.heightCm, sex: profile.sex
         )
-        return "\(Int(range.lowerBound.rounded()))–\(Int(range.upperBound.rounded()))"
+        return "\(SafeFormat.int(range.lowerBound))–\(SafeFormat.int(range.upperBound))"
     }
 
     private var latestDailyMetric: DailyHealthMetrics? {
@@ -399,7 +399,7 @@ struct BodyView: View {
 
     private var hrvText: String {
         if let m = latestDailyMetric, m.hasHRV {
-            return "\(Int(m.hrvMs.rounded()))"
+            return SafeFormat.int(m.hrvMs)
         }
         return "—"
     }
@@ -436,7 +436,7 @@ struct BodyView: View {
     }
 
     private func formatKg(_ kg: Double) -> String {
-        kg == floor(kg) ? "\(Int(kg))" : String(format: "%.1f", kg)
+        SafeFormat.decimal(kg)
     }
 
     private func relativeDateString(_ d: Date) -> String {
