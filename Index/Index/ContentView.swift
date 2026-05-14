@@ -67,20 +67,15 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Body tab placeholder
+    // MARK: - Body tab
     //
-    // Phase 4 replaces this with the real BodyView. Lets us verify the
-    // routing end-to-end in the simulator.
+    // Phase 4 destination. Phase 5/6 will introduce a TabView when the
+    // Fitness and Nutrition module screens land; for now Body is the
+    // single tab the active user lands on.
     private func bodyTabPlaceholder(profile: Profile) -> some View {
-        VStack(spacing: 8) {
-            Text("Index — Body").font(.title.italic())
-            Text(profile.name.isEmpty ? "—" : profile.name)
-                .foregroundStyle(.secondary)
-            Text("userId: \(profile.userId)")
-                .font(.caption.monospaced())
-                .foregroundStyle(.tertiary)
+        NavigationStack {
+            BodyView()
         }
-        .padding()
     }
 
     // MARK: - Onboarding completion
