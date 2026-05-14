@@ -1,0 +1,195 @@
+import SwiftUI
+import SwiftData
+
+/// Manual meal entry with FieldValidation guard rails — kcal is required
+/// and must fall in 0–5000; protein / carbs / fat are optional but, when
+/// entered, must be in 0–500 g. Mirrors LogWeightSheet's pattern.
+///
+/// When `editing` is non-nil the form pre-fills from that entry and
+/// updates it in place on Save; otherwise a new NutritionEntry is
+/// inserted with source = .manual.
+struct LogMealManualSheet: View {
+    let editing: NutritionEntry?
+
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var label: String = ""
+    @State private var kcalText: String = ""
+    @State private var proteinText: String = ""
+    @State private var carbsText: String = ""
+    @State private var fatText: String = ""
+    @State private var mealType: MealType = .snack
+    @State private var date: Date = .now
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case label, kcal, protein, carbs, fat
+    }
+
+    private static let kcalRange:  ClosedRange<Double> = 0...5000
+    private static let macroRange: ClosedRange<Double> = 0...500
+
+    private var labelValid: Bool {
+        !label.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private var kcalValidation: FieldValidation {
+        FieldValidation(
+            text: kcalText,
+            range: Self.kcalRange,
+            errorMessage: "Calories must be between 0 and 5000"
+        )
+    }
+    private var proteinValidation: FieldValidation {
+        FieldValidation(
+            text: proteinText,
+            range: Self.macroRange,
+            errorMessage: "Protein must be between 0 and 500 g"
+        )
+    }
+    private var carbsValidation: FieldValidation {
+        FieldValidation(
+            text: carbsText,
+            range: Self.macroRange,
+            errorMessage: "Carbs must be between 0 and 500 g"
+        )
+    }
+    private var fatValidation: FieldValidation {
+        FieldValidation(
+            text: fatText,
+            range: Self.macroRange,
+            errorMessage: "Fat must be between 0 and 500 g"
+        )
+    }
+
+    private var canSave: Bool {
+        labelValid
+            && kcalValidation.parsedInRange != nil
+            && proteinValidation.error == nil
+            && carbsValidation.error == nil
+            && fatValidation.error == nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Food") {
+                    TextField("Label (e.g. Oatmeal with banana)", text: $label)
+                        .focused($focusedField, equals: .label)
+                }
+
+                Section("Macros") {
+                    HStack {
+                        TextField("0", text: $kcalText)
+                            .keyboardType(.numberPad)
+                            .focused($focusedField, equals: .kcal)
+                        Text("kcal").foregroundStyle(.secondary)
+                    }
+                    if let e = kcalValidation.error {
+                        Text(e).font(.caption).foregroundStyle(.red)
+                    }
+                    HStack {
+                        TextField("Protein", text: $proteinText)
+                            .keyboardType(.decimalPad)
+                            .focused($focusedField, equals: .protein)
+                        Text("g").foregroundStyle(.secondary)
+                    }
+                    if let e = proteinValidation.error {
+                        Text(e).font(.caption).foregroundStyle(.red)
+                    }
+                    HStack {
+                        TextField("Carbs", text: $carbsText)
+                            .keyboardType(.decimalPad)
+                            .focused($focusedField, equals: .carbs)
+                        Text("g").foregroundStyle(.secondary)
+                    }
+                    if let e = carbsValidation.error {
+                        Text(e).font(.caption).foregroundStyle(.red)
+                    }
+                    HStack {
+                        TextField("Fat", text: $fatText)
+                            .keyboardType(.decimalPad)
+                            .focused($focusedField, equals: .fat)
+                        Text("g").foregroundStyle(.secondary)
+                    }
+                    if let e = fatValidation.error {
+                        Text(e).font(.caption).foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Meal", selection: $mealType) {
+                        ForEach(MealType.allCases) { type in
+                            Text(type.label).tag(type)
+                        }
+                    }
+                    DatePicker(
+                        "Date",
+                        selection: $date,
+                        in: ...Date.now,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                }
+            }
+            .navigationTitle(editing == nil ? "Log meal" : "Edit meal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save)
+                        .disabled(!canSave)
+                }
+            }
+            .onAppear(perform: prefill)
+        }
+    }
+
+    private func prefill() {
+        if let entry = editing {
+            label = entry.label
+            kcalText = SafeFormat.int(entry.kcal)
+            proteinText = entry.protein > 0 ? SafeFormat.int(entry.protein) : ""
+            carbsText = entry.carbs > 0 ? SafeFormat.int(entry.carbs) : ""
+            fatText = entry.fat > 0 ? SafeFormat.int(entry.fat) : ""
+            mealType = entry.mealType
+            date = entry.date
+        }
+        Task { @MainActor in
+            focusedField = editing == nil ? .label : nil
+        }
+    }
+
+    private func save() {
+        guard let kcal = kcalValidation.parsedInRange else { return }
+        let trimmed = label.trimmingCharacters(in: .whitespaces)
+        let protein = proteinValidation.parsedInRange ?? 0
+        let carbs   = carbsValidation.parsedInRange   ?? 0
+        let fat     = fatValidation.parsedInRange     ?? 0
+
+        if let entry = editing {
+            entry.label = trimmed
+            entry.kcal = kcal
+            entry.protein = protein
+            entry.carbs = carbs
+            entry.fat = fat
+            entry.mealType = mealType
+            entry.date = date
+        } else {
+            let entry = NutritionEntry(
+                date: date,
+                label: trimmed,
+                kcal: kcal,
+                protein: protein,
+                carbs: carbs,
+                fat: fat,
+                mealType: mealType,
+                source: .manual
+            )
+            context.insert(entry)
+        }
+        dismiss()
+    }
+}

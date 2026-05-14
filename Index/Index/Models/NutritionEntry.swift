@@ -5,6 +5,15 @@ enum MealType: String, CaseIterable, Codable, Identifiable {
     case breakfast, lunch, dinner, snack
 
     var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .breakfast: "Breakfast"
+        case .lunch:     "Lunch"
+        case .dinner:    "Dinner"
+        case .snack:     "Snack"
+        }
+    }
 }
 
 enum NutritionSource: String, CaseIterable, Codable {

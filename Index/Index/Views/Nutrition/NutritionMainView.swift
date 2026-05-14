@@ -32,7 +32,15 @@ struct NutritionMainView: View {
     )
     private var workouts: [WorkoutSession]
 
-    @State private var showLogSheet = false
+    @State private var showLogMethod = false
+    @State private var showManualEntry = false
+    @State private var selectedEntry: NutritionEntry? = nil
+    @State private var editTarget: NutritionEntry? = nil
+    @State private var pendingAfterMethod: PendingAfterMethod? = nil
+    @State private var pendingEditTarget: NutritionEntry? = nil
+    @State private var showScannerNotReady = false
+
+    private enum PendingAfterMethod { case manual, scan }
 
     private var profile: Profile? { profileService.activeProfile }
 
@@ -50,14 +58,59 @@ struct NutritionMainView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showLogSheet = true
+                    showLogMethod = true
                 } label: {
                     Text("Log").fontWeight(.semibold)
                 }
             }
         }
-        .sheet(isPresented: $showLogSheet) {
-            logPlaceholderSheet
+        .sheet(isPresented: $showLogMethod, onDismiss: routeAfterMethodSheet) {
+            LogMealMethodSheet { method in
+                pendingAfterMethod = (method == .scan) ? .scan : .manual
+                showLogMethod = false
+            }
+        }
+        .sheet(isPresented: $showManualEntry) {
+            LogMealManualSheet(editing: nil)
+        }
+        .sheet(item: $selectedEntry, onDismiss: routeAfterDetailSheet) { entry in
+            MealDetailView(entry: entry, onRequestEdit: {
+                pendingEditTarget = entry
+            })
+        }
+        .sheet(item: $editTarget) { entry in
+            LogMealManualSheet(editing: entry)
+        }
+        .alert(
+            "Scanner coming in step 27",
+            isPresented: $showScannerNotReady
+        ) {
+            Button("OK") {}
+        }
+    }
+
+    // MARK: - Sheet sequencing
+    //
+    // iOS won't present a new sheet while the prior is still dismissing.
+    // Each transition (method → manual, detail → edit) sets a "pending"
+    // intent and arms it from the dismissed sheet's `onDismiss`.
+
+    private func routeAfterMethodSheet() {
+        guard let action = pendingAfterMethod else { return }
+        pendingAfterMethod = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            switch action {
+            case .manual: showManualEntry = true
+            case .scan:   showScannerNotReady = true
+            }
+        }
+    }
+
+    private func routeAfterDetailSheet() {
+        guard let entry = pendingEditTarget else { return }
+        pendingEditTarget = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            editTarget = entry
         }
     }
 
@@ -207,19 +260,24 @@ struct NutritionMainView: View {
         let rows = todayEntries
         return List {
             ForEach(rows) { entry in
-                row(entry: entry)
-                    .listRowBackground(Color(.secondarySystemBackground))
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            // Hard delete: nutrition data never mirrors to
-                            // HealthKit (Index doesn't write food back), so
-                            // there's no dedup reason to keep a tombstone.
-                            context.delete(entry)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
+                Button {
+                    selectedEntry = entry
+                } label: {
+                    row(entry: entry)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(Color(.secondarySystemBackground))
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        // Hard delete: nutrition data never mirrors to
+                        // HealthKit (Index doesn't write food back), so
+                        // there's no dedup reason to keep a tombstone.
+                        context.delete(entry)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
                     }
+                }
             }
         }
         .listStyle(.plain)
@@ -252,32 +310,6 @@ struct NutritionMainView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
-    }
-
-    // MARK: - Placeholder log sheet
-
-    /// Phase 6 step 26 swaps this out for `LogMealMethodSheet`. Kept here so
-    /// the LOG button is testable at the end of step 25 — tap, see sheet,
-    /// dismiss.
-    private var logPlaceholderSheet: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                Spacer()
-                Text("Log a meal")
-                    .font(.title2.weight(.semibold))
-                Text("Method picker lands in step 26.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { showLogSheet = false }
-                }
-            }
-        }
-        .presentationDetents([.medium])
     }
 
     // MARK: - Derived data
