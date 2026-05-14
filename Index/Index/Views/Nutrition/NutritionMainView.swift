@@ -34,11 +34,12 @@ struct NutritionMainView: View {
 
     @State private var showLogMethod = false
     @State private var showManualEntry = false
+    @State private var showScanner = false
     @State private var selectedEntry: NutritionEntry? = nil
     @State private var editTarget: NutritionEntry? = nil
     @State private var pendingAfterMethod: PendingAfterMethod? = nil
     @State private var pendingEditTarget: NutritionEntry? = nil
-    @State private var showScannerNotReady = false
+    @State private var lastScannedCode: String? = nil
 
     private enum PendingAfterMethod { case manual, scan }
 
@@ -81,11 +82,26 @@ struct NutritionMainView: View {
         .sheet(item: $editTarget) { entry in
             LogMealManualSheet(editing: entry)
         }
+        .fullScreenCover(isPresented: $showScanner) {
+            BarcodeScannerView(
+                onDetect: { code in
+                    lastScannedCode = code
+                    showScanner = false
+                },
+                onCancel: { showScanner = false }
+            )
+        }
         .alert(
-            "Scanner coming in step 27",
-            isPresented: $showScannerNotReady
-        ) {
-            Button("OK") {}
+            "Scanned barcode",
+            isPresented: Binding(
+                get: { lastScannedCode != nil },
+                set: { if !$0 { lastScannedCode = nil } }
+            ),
+            presenting: lastScannedCode
+        ) { _ in
+            Button("OK") { lastScannedCode = nil }
+        } message: { code in
+            Text("\(code)\n\nLookup + result sheet land in step 28.")
         }
     }
 
@@ -101,7 +117,7 @@ struct NutritionMainView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             switch action {
             case .manual: showManualEntry = true
-            case .scan:   showScannerNotReady = true
+            case .scan:   showScanner = true
             }
         }
     }
