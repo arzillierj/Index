@@ -6,6 +6,13 @@ import SwiftData
 
 enum Sex: String, CaseIterable, Codable {
     case male, female
+
+    var label: String {
+        switch self {
+        case .male:   "Male"
+        case .female: "Female"
+        }
+    }
 }
 
 enum ActivityLevel: String, CaseIterable, Codable {
@@ -26,6 +33,16 @@ enum ActivityLevel: String, CaseIterable, Codable {
         }
     }
 
+    var label: String {
+        switch self {
+        case .sedentary:        "Sedentary"
+        case .lightlyActive:    "Lightly active"
+        case .moderatelyActive: "Moderately active"
+        case .veryActive:       "Very active"
+        case .extraActive:      "Extra active"
+        }
+    }
+
     var detail: String {
         switch self {
         case .sedentary:        "Desk job, little exercise"
@@ -39,14 +56,45 @@ enum ActivityLevel: String, CaseIterable, Codable {
 
 enum Goal: String, CaseIterable, Codable {
     case lose, maintain, gain
+
+    var label: String {
+        switch self {
+        case .lose:     "Lose weight"
+        case .maintain: "Maintain"
+        case .gain:     "Gain weight"
+        }
+    }
 }
 
 enum Units: String, CaseIterable, Codable {
     case metric, imperial
+
+    var label: String {
+        switch self {
+        case .metric:   "Metric (kg / cm)"
+        case .imperial: "Imperial (lb / ft·in)"
+        }
+    }
 }
 
 enum Module: String, CaseIterable, Codable {
     case body, fitness, nutrition
+
+    var label: String {
+        switch self {
+        case .body:      "Body"
+        case .fitness:   "Fitness"
+        case .nutrition: "Nutrition"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .body:      "Weight, body composition, vitals."
+        case .fitness:   "Workouts, cycling, strength."
+        case .nutrition: "Meals, macros, barcode scanning."
+        }
+    }
 }
 
 @Model
