@@ -12,11 +12,7 @@ struct LogActivitySheet: View {
                 Section {
                     activityRow(title: "Strength session", icon: "dumbbell.fill", choice: .strength)
                     NavigationLink {
-                        // P5.23 replaces this with the real StrengthLibraryView.
-                        Text("StrengthLibraryView — coming in P5.23")
-                            .padding()
-                            .navigationTitle("My exercises")
-                            .navigationBarTitleDisplayMode(.inline)
+                        StrengthLibraryView()
                     } label: {
                         Label("My exercises", systemImage: "list.bullet")
                             .foregroundStyle(.secondary)

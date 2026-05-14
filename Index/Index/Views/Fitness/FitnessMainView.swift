@@ -24,6 +24,9 @@ struct FitnessMainView: View {
     @Query(sort: \DailyHealthMetrics.date, order: .reverse)
     private var dailyMetrics: [DailyHealthMetrics]
 
+    @Query(sort: \StrengthSession.date, order: .reverse)
+    private var strengthSessions: [StrengthSession]
+
     @State private var showLogSheet = false
     @State private var showLogCycling = false
     @State private var logOtherPreset: WorkoutType? = nil
@@ -61,31 +64,7 @@ struct FitnessMainView: View {
             LogOtherWorkoutSheet(preset: preset)
         }
         .fullScreenCover(isPresented: $showActiveStrength) {
-            // P5.23 replaces this with the real ActiveStrengthSessionView.
-            placeholderFullScreen("ActiveStrengthSessionView", "Coming in P5.23.")
-        }
-    }
-
-    private func placeholderSheet(_ title: String, _ subtitle: String) -> some View {
-        VStack(spacing: 12) {
-            Text(title).font(.title2.weight(.semibold))
-            Text(subtitle).font(.footnote).foregroundStyle(.secondary)
-        }
-        .padding()
-        .presentationDetents([.medium])
-    }
-
-    private func placeholderFullScreen(_ title: String, _ subtitle: String) -> some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                Text(title).font(.title2.weight(.semibold))
-                Text(subtitle).font(.footnote).foregroundStyle(.secondary)
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { showActiveStrength = false }
-                }
-            }
+            ActiveStrengthSessionView()
         }
     }
 
@@ -179,7 +158,7 @@ struct FitnessMainView: View {
         List {
             ForEach(sessions) { s in
                 NavigationLink {
-                    WorkoutDetailView(session: s)
+                    detailDestination(for: s)
                 } label: {
                     feedRow(s)
                 }
@@ -199,6 +178,19 @@ struct FitnessMainView: View {
         .scrollContentBackground(.hidden)
         .frame(height: CGFloat(sessions.count) * 64)
         .clipShape(.rect(cornerRadius: 12))
+    }
+
+    /// Routes feed row taps to the correct detail screen — strength
+    /// sessions get their own view that lists performances + sets, every
+    /// other type uses the parameterized WorkoutDetailView.
+    @ViewBuilder
+    private func detailDestination(for s: WorkoutSession) -> some View {
+        if s.type == .strength,
+           let strength = strengthSessions.first(where: { $0.id == s.strengthSessionId }) {
+            StrengthSessionDetailView(session: strength, workout: s)
+        } else {
+            WorkoutDetailView(session: s)
+        }
     }
 
     private func feedRow(_ s: WorkoutSession) -> some View {
