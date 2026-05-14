@@ -58,8 +58,7 @@ struct FitnessMainView: View {
             LogCyclingSheet()
         }
         .sheet(item: $logOtherPreset) { preset in
-            // P5.21 replaces this with the real LogOtherWorkoutSheet.
-            placeholderSheet("LogOtherWorkoutSheet", "Preset: \(preset.label). Coming in P5.21.")
+            LogOtherWorkoutSheet(preset: preset)
         }
         .fullScreenCover(isPresented: $showActiveStrength) {
             // P5.23 replaces this with the real ActiveStrengthSessionView.
