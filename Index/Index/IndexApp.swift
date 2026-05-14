@@ -4,7 +4,7 @@ import SwiftData
 @main
 struct IndexApp: App {
     let modelContainer: ModelContainer = {
-        let schema = Schema(IndexSchemaV2.models)
+        let schema = Schema(IndexSchemaV3.models)
         // Local SwiftData store. The CloudKit container is intentionally NOT
         // configured yet — pending paid Developer Program enrollment. When
         // enabled, the ModelConfiguration gets

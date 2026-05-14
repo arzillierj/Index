@@ -57,6 +57,11 @@ final class WorkoutSession {
     var deletedFromIndex: Bool = false
     /// Soft link to StrengthSession.id when `type == .strength`. Empty otherwise.
     var strengthSessionId: String = ""
+    /// HK sample UUID for auto-imported workouts. Primary dedup key in
+    /// processHKWorkout — preferred over the ±2-min date window once
+    /// populated. nil for manual entries and for any auto-imports
+    /// created before this field existed (pre-V3).
+    var hkWorkoutUUID: String? = nil
 
     init(
         date: Date = .now,
@@ -75,7 +80,8 @@ final class WorkoutSession {
         source: WorkoutSourceKind = .manual,
         notes: String = "",
         deletedFromIndex: Bool = false,
-        strengthSessionId: String = ""
+        strengthSessionId: String = "",
+        hkWorkoutUUID: String? = nil
     ) {
         self.date = date
         self.typeRaw = type.rawValue
@@ -94,6 +100,7 @@ final class WorkoutSession {
         self.notes = notes
         self.deletedFromIndex = deletedFromIndex
         self.strengthSessionId = strengthSessionId
+        self.hkWorkoutUUID = hkWorkoutUUID
     }
 
     var type: WorkoutType {

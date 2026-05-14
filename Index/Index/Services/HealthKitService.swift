@@ -25,6 +25,7 @@ final class HealthKitService {
     // MARK: - Published state
 
     var isAuthorized = false
+    var isBackfilling = false
     var latestBodyFat: (percent: Double, date: Date)? = nil
     var latestLeanMass: (kg: Double, date: Date)? = nil
     var bodyFatHistory: [(date: Date, percent: Double)] = []
@@ -100,9 +101,25 @@ final class HealthKitService {
     private func bootstrap() async {
         await fetchAll()
         await fetchDailyHealth()
+
+        // One-time historical backfill — covers everything from January 1
+        // of the current year up to now, regardless of the anchored
+        // observer's state. Without this, the user only sees workouts
+        // *after* the moment they granted HK auth.
+        if !UserDefaults.standard.bool(forKey: Self.didBackfillKey) {
+            await importHistoricalWorkouts(since: Self.startOfCurrentYear())
+            UserDefaults.standard.set(true, forKey: Self.didBackfillKey)
+        }
+
         await importWorkouts()
         startObservingBodyMass()
         startObservingWorkouts()
+    }
+
+    private static func startOfCurrentYear() -> Date {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year], from: .now)
+        return cal.date(from: comps) ?? .now
     }
 
     // MARK: - Latest + history (body composition)
@@ -284,6 +301,28 @@ final class HealthKitService {
         UserDefaults.standard.set(Date.now, forKey: Self.lastWorkoutSyncKey)
     }
 
+    /// One-time historical backfill. Walks HK from `startDate` to now via a
+    /// plain HKSampleQuery (the anchored observer only returns workouts
+    /// *since* its last fire, so it can't catch history that predates
+    /// auth). Each match is processed through the normal pipeline —
+    /// processHKWorkout's UUID dedup keeps a re-run idempotent.
+    ///
+    /// Surfaces progress via `isBackfilling` so the Fitness tab can show
+    /// an "Importing your Apple Health workouts…" banner during the
+    /// fetch. Backfill is gated by the `didHistoricalBackfill`
+    /// UserDefaults flag in `bootstrap()` so this runs at most once per
+    /// device install.
+    func importHistoricalWorkouts(since startDate: Date) async {
+        guard Self.isAvailable, let ctx = modelContext else { return }
+        isBackfilling = true
+        defer { isBackfilling = false }
+
+        let workouts = await fetchHKWorkouts(since: startDate)
+        for workout in workouts {
+            await processHKWorkout(workout, context: ctx)
+        }
+    }
+
     func startObservingWorkouts() {
         guard Self.isAvailable else { return }
         workoutAnchor = loadWorkoutAnchor()
@@ -339,11 +378,25 @@ final class HealthKitService {
     }
 
     /// Maps the HKWorkout into a WorkoutSession with all of the v0 audit
-    /// fixes applied. Dedup window is ±2 min, predicate unfiltered on
-    /// deletedFromIndex (tombstone behavior).
+    /// fixes applied. Dedup is two-tier:
+    ///   1. Primary: HK UUID match — covers every re-import of an
+    ///      auto-imported workout (anchored observer + historical
+    ///      backfill).
+    ///   2. Secondary: ±2-min date window — covers collisions with
+    ///      manual logs and any legacy auto-imports created before the
+    ///      hkWorkoutUUID field existed.
+    /// Neither dedup predicate filters on `deletedFromIndex` — that's
+    /// the tombstone contract that prevents swipe-deletes from being
+    /// re-resurrected by future imports.
     private func processHKWorkout(_ workout: HKWorkout, context: ModelContext) async {
         let durationMin = Int(workout.duration / 60)
         guard durationMin >= 1 else { return }
+
+        let uuidString = workout.uuid.uuidString
+        let uuidDesc = FetchDescriptor<WorkoutSession>(
+            predicate: #Predicate { $0.hkWorkoutUUID == uuidString }
+        )
+        if !((try? context.fetch(uuidDesc)) ?? []).isEmpty { return }
 
         let wStart = workout.startDate
         let wEnd   = workout.endDate
@@ -394,7 +447,8 @@ final class HealthKitService {
             distanceKm: distanceKm,
             hasDistance: hasDistance,
             source: .healthkit,
-            notes: "From Apple Health"
+            notes: "From Apple Health",
+            hkWorkoutUUID: uuidString
         ))
     }
 
@@ -563,4 +617,5 @@ final class HealthKitService {
     static let importWorkoutsKey = "hk_import_workouts"
     static let lastWorkoutSyncKey = "hk_last_workout_sync"
     static let workoutAnchorKey = "hk_workout_anchor"
+    static let didBackfillKey = "didHistoricalBackfill"
 }

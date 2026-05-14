@@ -37,6 +37,9 @@ struct FitnessMainView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                if hkService.isBackfilling {
+                    backfillBanner
+                }
                 insightSection
                 thisWeekSection
                 Divider()
@@ -84,6 +87,26 @@ struct FitnessMainView: View {
             case .other:    logOtherPreset = .other
             }
         }
+    }
+
+    // MARK: - Backfill banner
+
+    /// Surfaces during the one-time historical Apple Health workout
+    /// backfill (HealthKitService.importHistoricalWorkouts). Disappears
+    /// once HealthKitService.isBackfilling flips back to false; rows
+    /// stream into the feed below as they're inserted into SwiftData.
+    private var backfillBanner: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Importing your Apple Health workouts…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Brain insight
