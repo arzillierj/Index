@@ -23,9 +23,14 @@ struct IndexApp: App {
         }
     }()
 
+    @State private var profileService = ProfileService(identity: AppDependencies.identity)
+    @State private var hkService = HealthKitService()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(profileService)
+                .environment(hkService)
         }
         .modelContainer(modelContainer)
     }
