@@ -178,12 +178,11 @@ struct FitnessMainView: View {
     private var feedList: some View {
         List {
             ForEach(sessions) { s in
-                Button {
-                    // P5.22 wires this row to per-type detail screens.
+                NavigationLink {
+                    WorkoutDetailView(session: s)
                 } label: {
                     feedRow(s)
                 }
-                .buttonStyle(.plain)
                 .listRowBackground(Color(.secondarySystemBackground))
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -219,9 +218,6 @@ struct FitnessMainView: View {
             Text(formatDuration(s.durationMinutes))
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(.secondary)
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
