@@ -87,8 +87,7 @@ struct ContentView: View {
     // MARK: - Main app tabs
     //
     // TabView containing every module the active Profile has enabled.
-    // Body is always present until disabled in Settings; Fitness lands
-    // in Phase 5; Nutrition lands in Phase 6.
+    // Body, Fitness, and Nutrition can each be toggled off in Settings.
     private func bodyTabPlaceholder(profile: Profile) -> some View {
         TabView {
             if profile.enabledModules.contains(.body) {
@@ -99,6 +98,11 @@ struct ContentView: View {
             if profile.enabledModules.contains(.fitness) {
                 Tab("Fitness", systemImage: "figure.run") {
                     NavigationStack { FitnessMainView() }
+                }
+            }
+            if profile.enabledModules.contains(.nutrition) {
+                Tab("Nutrition", systemImage: "fork.knife") {
+                    NavigationStack { NutritionMainView() }
                 }
             }
         }
