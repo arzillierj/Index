@@ -122,39 +122,70 @@ final class HealthKitService {
     }
 
     /// Combines bodyMass + bodyFatPercentage + leanBodyMass samples from
-    /// the same time window into one WeightEntry, tagging the source as
-    /// `.renpho` if the bodyMass sample originated from a RENPHO app
-    /// (bundle id or name contains "renpho"). Dedup window is ±5 min.
+    /// the same time window AND the same HK source into one WeightEntry,
+    /// tagging the source as `.renpho` if the bodyMass sample originated
+    /// from a RENPHO app. Dedup window is ±5 min.
+    ///
+    /// Source-matching is required for body composition grouping: a
+    /// RENPHO weigh-in shouldn't absorb a stale body-fat sample from
+    /// another app that happens to fall in the ±5 min window, and a
+    /// manual Index weight write shouldn't accidentally pick up a
+    /// RENPHO body-fat reading. The published `latestBodyFat` /
+    /// `latestLeanMass` tuples still take the most-recent reading from
+    /// any source (they drive the Body screen's display).
     private func handleNewBodyMass() async {
         guard let ctx = modelContext,
               let bmSample = await fetchLatest(.bodyMass) else { return }
         let kg = bmSample.quantity.doubleValue(for: .gramUnit(with: .kilo))
         let date = bmSample.startDate
         let source = detectWeightSource(bmSample)
+        let bmBundleId = bmSample.sourceRevision.source.bundleIdentifier
 
-        // Try to find a body-fat sample within ±5 min of this weigh-in.
+        // Always refresh the published "latest" tuples — they're for
+        // display and want the freshest reading regardless of source.
+        if let fs = await fetchLatest(.bodyFatPercentage) {
+            latestBodyFat = (
+                percent: fs.quantity.doubleValue(for: .percent()) * 100,
+                date: fs.startDate
+            )
+        }
+        if let ls = await fetchLatest(.leanBodyMass) {
+            latestLeanMass = (
+                kg: ls.quantity.doubleValue(for: .gramUnit(with: .kilo)),
+                date: ls.startDate
+            )
+        }
+
+        // For the WeightEntry grouping, require the body composition
+        // samples to come from the same HK source as the bodyMass sample.
         var fatPct: Double? = nil
         var leanKg: Double? = nil
         let window: TimeInterval = 300
 
-        if let fs = await fetchLatest(.bodyFatPercentage),
-           abs(fs.startDate.timeIntervalSince(date)) <= window {
+        if let fs = await fetchSampleNear(
+            .bodyFatPercentage,
+            date: date,
+            window: window,
+            fromSourceBundleId: bmBundleId
+        ) {
             fatPct = fs.quantity.doubleValue(for: .percent()) * 100
-            latestBodyFat = (percent: fatPct!, date: fs.startDate)
         }
-        if let ls = await fetchLatest(.leanBodyMass),
-           abs(ls.startDate.timeIntervalSince(date)) <= window {
+        if let ls = await fetchSampleNear(
+            .leanBodyMass,
+            date: date,
+            window: window,
+            fromSourceBundleId: bmBundleId
+        ) {
             leanKg = ls.quantity.doubleValue(for: .gramUnit(with: .kilo))
-            latestLeanMass = (kg: leanKg!, date: ls.startDate)
         }
 
         // Dedup against existing WeightEntry rows within ±5 min. Predicate
         // intentionally does NOT filter on deletedFromIndex — that's how
         // swipe-deletes act as tombstones against re-import.
-        let start = date.addingTimeInterval(-window)
-        let end   = date.addingTimeInterval(window)
+        let dedupeStart = date.addingTimeInterval(-window)
+        let dedupeEnd   = date.addingTimeInterval(window)
         let desc = FetchDescriptor<WeightEntry>(
-            predicate: #Predicate { $0.date >= start && $0.date <= end }
+            predicate: #Predicate { $0.date >= dedupeStart && $0.date <= dedupeEnd }
         )
         guard ((try? ctx.fetch(desc)) ?? []).isEmpty else { return }
 
@@ -168,6 +199,35 @@ final class HealthKitService {
             source: source
         )
         ctx.insert(entry)
+    }
+
+    /// Finds the most recent sample of `id` within ±`window` of `date`
+    /// that came from the given source bundle id. Used by
+    /// handleNewBodyMass to group body composition samples to the
+    /// matching weigh-in.
+    private func fetchSampleNear(
+        _ id: HKQuantityTypeIdentifier,
+        date: Date,
+        window: TimeInterval,
+        fromSourceBundleId bundleId: String
+    ) async -> HKQuantitySample? {
+        let type = HKQuantityType(id)
+        let start = date.addingTimeInterval(-window)
+        let end   = date.addingTimeInterval(window)
+        let timePred = HKQuery.predicateForSamples(
+            withStart: start, end: end, options: .strictStartDate
+        )
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        let samples: [HKQuantitySample] = await withCheckedContinuation { cont in
+            let q = HKSampleQuery(
+                sampleType: type, predicate: timePred,
+                limit: 10, sortDescriptors: [sort]
+            ) { _, s, _ in
+                cont.resume(returning: s as? [HKQuantitySample] ?? [])
+            }
+            store.execute(q)
+        }
+        return samples.first { $0.sourceRevision.source.bundleIdentifier == bundleId }
     }
 
     /// Reads the bodyMass sample's source revision to decide whether the
