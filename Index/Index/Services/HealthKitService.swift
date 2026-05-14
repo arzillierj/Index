@@ -74,14 +74,35 @@ final class HealthKitService {
             try await store.requestAuthorization(toShare: writeTypes, read: readTypes)
             isAuthorized = store.authorizationStatus(for: HKQuantityType(.bodyMass)) == .sharingAuthorized
             if isAuthorized {
-                await fetchAll()
-                await fetchDailyHealth()
-                startObservingBodyMass()
-                startObservingWorkouts()
+                await bootstrap()
             }
         } catch {
             print("[HealthKitService] requestAuthorization error: \(error)")
         }
+    }
+
+    /// App-launch entry point. If the user has already granted HK
+    /// authorization in a previous session, refresh state, run the
+    /// workout backfill, and arm the observers. Safe to call on every
+    /// launch — the underlying fetches/upserts are idempotent and the
+    /// anchored workout observer dedups via ±2 min predicate.
+    func bootstrapIfAuthorized() async {
+        guard Self.isAvailable else { return }
+        let status = store.authorizationStatus(for: HKQuantityType(.bodyMass))
+        guard status == .sharingAuthorized else { return }
+        isAuthorized = true
+        await bootstrap()
+    }
+
+    /// Fan-out triggered after first auth grant or on every cold start
+    /// once authorized. Caller is responsible for the .sharingAuthorized
+    /// check.
+    private func bootstrap() async {
+        await fetchAll()
+        await fetchDailyHealth()
+        await importWorkouts()
+        startObservingBodyMass()
+        startObservingWorkouts()
     }
 
     // MARK: - Latest + history (body composition)

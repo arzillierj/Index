@@ -26,11 +26,13 @@ struct ContentView: View {
         .task {
             // Resolve current identity → active Profile (or orphan, or
             // neither). Also wire HKService to the same context so its
-            // imports persist into our store.
+            // imports persist into our store, and arm HK auto-import +
+            // observers if the user has previously granted authorization.
             profileService.refresh(in: modelContext)
             if hkService.modelContext == nil {
                 hkService.modelContext = modelContext
             }
+            await hkService.bootstrapIfAuthorized()
         }
     }
 
