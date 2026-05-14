@@ -53,15 +53,7 @@ struct BodyView: View {
             }
         }
         .sheet(isPresented: $showLogSheet) {
-            // P4.14 replaces this placeholder with the real LogWeightSheet.
-            VStack(spacing: 12) {
-                Text("Log weight").font(.title2.weight(.semibold))
-                Text("Coming in P4.14.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
-            .presentationDetents([.medium])
+            LogWeightSheet()
         }
         .alert(alertTitle, isPresented: $showAlert) {
             Button("OK") {}
