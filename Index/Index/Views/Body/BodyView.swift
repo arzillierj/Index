@@ -254,10 +254,12 @@ struct BodyView: View {
                     .foregroundStyle(.secondary)
                     .tracking(0.8)
                 Spacer()
-                // P4.16 wires this NavigationLink to the full history list.
-                Text("See all")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                NavigationLink {
+                    WeightHistoryView()
+                } label: {
+                    Text("See all")
+                        .font(.caption)
+                }
             }
             if weights.isEmpty {
                 Text("No entries yet.")
