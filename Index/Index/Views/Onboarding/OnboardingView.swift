@@ -29,10 +29,13 @@ struct OnboardingView: View {
     let identity: any IdentityService
     let onComplete: (OnboardingDraft) -> Void
 
+    @Environment(HealthKitService.self) private var hkService
+
     @State private var step: Int = 1
     @State private var draft = OnboardingDraft()
     @State private var signInError: String? = nil
     @State private var signingIn = false
+    @State private var connectingHealth = false
 
     private var totalVisibleSteps: Int {
         draft.enabledModules.contains(.fitness) ? 8 : 7
@@ -103,7 +106,7 @@ struct OnboardingView: View {
     private var primaryLabel: String {
         switch step {
         case 1: signingIn ? "Signing in…" : "Get started"
-        case 8: "Connect Apple Health"
+        case 8: connectingHealth ? "Requesting access…" : "Connect Apple Health"
         default: visibleStepNumber == totalVisibleSteps ? "Open Index" : "Continue"
         }
     }
@@ -112,6 +115,7 @@ struct OnboardingView: View {
         switch step {
         case 1: !signingIn
         case 3: !draft.name.trimmingCharacters(in: .whitespaces).isEmpty
+        case 8: !connectingHealth
         default: true
         }
     }
@@ -368,7 +372,8 @@ struct OnboardingView: View {
         .disabled(isCapReached)
     }
 
-    // 8 — Apple Health connect (placeholder — actual HK auth lands in P3.12).
+    // 8 — Apple Health connect. Tapping the primary button requests HK
+    // authorization; Skip bypasses it. Re-grantable from Settings later.
     private var healthConnectStep: some View {
         VStack(alignment: .leading, spacing: 16) {
             heading("Connect Apple Health.")
@@ -377,6 +382,12 @@ struct OnboardingView: View {
             Text("You can change this anytime from Settings.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
+            if !HealthKitService.isAvailable {
+                Label("Apple Health isn't available on this device.", systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            }
         }
         .padding(.top, 24)
     }
@@ -439,18 +450,15 @@ struct OnboardingView: View {
         step = max(1, step - 1)
     }
 
-    /// Primary button on the footer. On step 1 it kicks off sign-in then
-    /// advances on success. On step 8 it triggers the HK connect path
-    /// (still a no-op in P3.10 — P3.12 fills it in). Otherwise it just
-    /// advances.
+    /// Primary button on the footer. Step 1 kicks off sign-in then advances.
+    /// Step 8 requests Apple Health authorization, records the result on
+    /// the draft, then completes. Skip button bypasses the auth request.
     private func handlePrimary() {
         switch step {
         case 1:
             Task { await performSignIn() }
         case 8:
-            // P3.10: placeholder — advance immediately. P3.12 wires the
-            // real HK authorization request here.
-            complete()
+            Task { await performConnectHealth() }
         default:
             advance()
         }
@@ -485,5 +493,18 @@ struct OnboardingView: View {
         } catch {
             signInError = "Sign-in failed. Try again."
         }
+    }
+
+    @MainActor
+    private func performConnectHealth() async {
+        connectingHealth = true
+        defer { connectingHealth = false }
+        await hkService.requestAuthorization()
+        // requestAuthorization returns normally whether the user grants or
+        // denies; isAuthorized is the post-decision truth. If the dialog
+        // never appears (HK unavailable, simulator without HK store), the
+        // flag stays false and the user can retry from Settings later.
+        draft.appleHealthAuthorized = hkService.isAuthorized
+        complete()
     }
 }
