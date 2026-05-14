@@ -24,6 +24,7 @@ struct BodyView: View {
     private var dailyMetrics: [DailyHealthMetrics]
 
     @State private var showLogSheet = false
+    @State private var selectedEntry: WeightEntry? = nil
     @State private var alertTitle: String = ""
     @State private var alertMessage: String = ""
     @State private var showAlert = false
@@ -54,6 +55,9 @@ struct BodyView: View {
         }
         .sheet(isPresented: $showLogSheet) {
             LogWeightSheet()
+        }
+        .sheet(item: $selectedEntry) { entry in
+            WeightEntryDetailSheet(entry: entry)
         }
         .alert(alertTitle, isPresented: $showAlert) {
             Button("OK") {}
@@ -266,8 +270,12 @@ struct BodyView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(weights.prefix(5)) { entry in
-                        // P4.15 wires this row to WeightEntryDetailSheet.
-                        recentEntryRow(entry: entry)
+                        Button {
+                            selectedEntry = entry
+                        } label: {
+                            recentEntryRow(entry: entry)
+                        }
+                        .buttonStyle(.plain)
                         if entry.persistentModelID != weights.prefix(5).last?.persistentModelID {
                             Divider().padding(.leading, 12)
                         }
