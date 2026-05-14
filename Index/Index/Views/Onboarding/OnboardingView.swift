@@ -2,8 +2,7 @@ import SwiftUI
 
 /// Working state collected across the 8 onboarding steps. Held as @State on
 /// OnboardingView until the user finishes; the completion callback receives
-/// the populated draft. P3.11 wires that callback to ProfileService so the
-/// draft becomes a persisted Profile.
+/// the populated draft.
 struct OnboardingDraft: Equatable {
     var userId: String = ""
     var name: String = ""
@@ -19,12 +18,21 @@ struct OnboardingDraft: Equatable {
     var appleHealthAuthorized: Bool = false
 }
 
+/// Which TextField currently owns the keyboard. Auto-set on .onAppear of
+/// the relevant step so the keyboard rises immediately on navigation
+/// rather than on first tap (which has noticeable focus-resolution lag).
+private enum OnboardingField: Hashable {
+    case name
+    case heightCm
+    case targetWeight
+}
+
 /// 8-step onboarding flow. System default styling — visual pass lands later
 /// as a separate prompt.
 ///
-/// Step navigation is linear (Back / Continue) with one branch: when the
-/// Fitness module is toggled off in step 6, step 7 (exercise picker) is
-/// skipped on both forward and back navigation.
+/// Layout pattern: chrome at top, step body fills middle vertical area
+/// (`maxHeight: .infinity` on the ScrollView and `alignment: .leading` on
+/// its content keep the form top-aligned), footer pinned at bottom.
 struct OnboardingView: View {
     let identity: any IdentityService
     let onComplete: (OnboardingDraft) -> Void
@@ -36,6 +44,7 @@ struct OnboardingView: View {
     @State private var signInError: String? = nil
     @State private var signingIn = false
     @State private var connectingHealth = false
+    @FocusState private var focusedField: OnboardingField?
 
     private var totalVisibleSteps: Int {
         draft.enabledModules.contains(.fitness) ? 8 : 7
@@ -49,31 +58,60 @@ struct OnboardingView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollView { stepContent.padding(.horizontal) }
+        VStack(alignment: .leading, spacing: 0) {
+            chromeHeader
+
+            // Step 7 needs scroll (10-tile grid); every other step fits the
+            // viewport. Splitting keeps short steps top-aligned via a
+            // trailing Spacer rather than relying on ScrollView's content
+            // positioning, which centers in some iOS 26 layout contexts.
+            if step == 7 {
+                ScrollView {
+                    stepContent
+                        .padding(.horizontal)
+                        .padding(.top, 24)
+                        .padding(.bottom, 24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: .infinity)
                 .scrollDismissesKeyboard(.interactively)
+            } else {
+                stepContent
+                    .padding(.horizontal)
+                    .padding(.top, 24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+            }
+
             footer
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground).ignoresSafeArea())
     }
 
     // MARK: - Chrome
 
-    private var header: some View {
+    private var chromeHeader: some View {
+        // ZStack so the Step counter sits in the absolute horizontal center
+        // regardless of whether the Back button is present. The HStack
+        // overlay supplies the Back button when canGoBack is true.
+        //
+        // The previous version used `Color.clear.frame(width: 60)` as a
+        // placeholder to balance the Back button — but Color.clear is a
+        // greedy view and the missing height constraint let the HStack
+        // and the whole chromeHeader VStack stretch vertically, pushing
+        // the form content into the middle/bottom of the screen.
         VStack(spacing: 10) {
-            HStack {
-                if canGoBack {
-                    Button("Back", action: goBack)
-                } else {
-                    Color.clear.frame(width: 60)
-                }
-                Spacer()
+            ZStack {
                 Text("Step \(visibleStepNumber) of \(totalVisibleSteps)")
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
-                Spacer()
-                Color.clear.frame(width: 60)
+                HStack {
+                    if canGoBack {
+                        Button("Back", action: goBack)
+                    }
+                    Spacer()
+                }
             }
             ProgressView(value: Double(visibleStepNumber), total: Double(totalVisibleSteps))
         }
@@ -148,9 +186,7 @@ struct OnboardingView: View {
             heading("Welcome to Index.")
             Text("Your body, fitness, and nutrition — interpreted, not just displayed.")
                 .foregroundStyle(.secondary)
-            Spacer(minLength: 40)
         }
-        .padding(.top, 24)
     }
 
     // 2 — Welcome.
@@ -166,10 +202,10 @@ struct OnboardingView: View {
             }
             .padding(.top, 8)
         }
-        .padding(.top, 24)
     }
 
-    // 3 — Profile basics.
+    // 3 — Profile basics. Auto-focuses the Name field on appear so the
+    // keyboard rises immediately rather than on first tap.
     private var profileBasicsStep: some View {
         VStack(alignment: .leading, spacing: 18) {
             heading("Tell us about you.")
@@ -179,6 +215,9 @@ struct OnboardingView: View {
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.words)
+                    .focused($focusedField, equals: .name)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .heightCm }
             }
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -193,6 +232,7 @@ struct OnboardingView: View {
                     TextField("175", value: $draft.heightCm, format: .number.precision(.fractionLength(0)))
                         .textFieldStyle(.roundedBorder)
                         .keyboardType(.numberPad)
+                        .focused($focusedField, equals: .heightCm)
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -205,7 +245,15 @@ struct OnboardingView: View {
                 .pickerStyle(.segmented)
             }
         }
-        .padding(.top, 24)
+        .onAppear {
+            // Race-free focus: SwiftUI needs a tick to install the
+            // TextField before .focused() can attach. Hop through
+            // MainActor.run so the focus assignment lands AFTER the
+            // current render pass.
+            Task { @MainActor in
+                focusedField = .name
+            }
+        }
     }
 
     // 4 — Activity level.
@@ -227,7 +275,6 @@ struct OnboardingView: View {
                 }
             }
         }
-        .padding(.top, 24)
     }
 
     // 5 — Goal.
@@ -261,12 +308,12 @@ struct OnboardingView: View {
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 100)
+                        .focused($focusedField, equals: .targetWeight)
                         Text("kg").foregroundStyle(.secondary)
                     }
                 }
             }
         }
-        .padding(.top, 24)
     }
 
     // 6 — Module selection.
@@ -282,7 +329,6 @@ struct OnboardingView: View {
                 }
             }
         }
-        .padding(.top, 24)
     }
 
     private func moduleToggleRow(module: Module) -> some View {
@@ -326,7 +372,6 @@ struct OnboardingView: View {
                 }
             }
         }
-        .padding(.top, 24)
     }
 
     private func exerciseTile(_ ex: ExerciseDefinition) -> some View {
@@ -389,7 +434,6 @@ struct OnboardingView: View {
                     .padding(.top, 8)
             }
         }
-        .padding(.top, 24)
     }
 
     // MARK: - Reusable cells
@@ -442,6 +486,7 @@ struct OnboardingView: View {
     private var canGoBack: Bool { step > 1 }
 
     private func goBack() {
+        focusedField = nil
         // Skip back over step 7 when Fitness is off.
         if step == 8, !draft.enabledModules.contains(.fitness) {
             step = 6
@@ -454,6 +499,7 @@ struct OnboardingView: View {
     /// Step 8 requests Apple Health authorization, records the result on
     /// the draft, then completes. Skip button bypasses the auth request.
     private func handlePrimary() {
+        focusedField = nil
         switch step {
         case 1:
             Task { await performSignIn() }
@@ -478,6 +524,7 @@ struct OnboardingView: View {
     }
 
     private func complete() {
+        focusedField = nil
         onComplete(draft)
     }
 
