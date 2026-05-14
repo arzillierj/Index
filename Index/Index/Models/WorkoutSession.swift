@@ -6,6 +6,17 @@ enum WorkoutType: String, CaseIterable, Codable, Identifiable {
 
     var id: String { rawValue }
 
+    var label: String {
+        switch self {
+        case .cycling:  "Cycling"
+        case .running:  "Running"
+        case .swimming: "Swimming"
+        case .strength: "Strength"
+        case .squash:   "Squash"
+        case .other:    "Other"
+        }
+    }
+
     var icon: String {
         switch self {
         case .cycling:  "bicycle"

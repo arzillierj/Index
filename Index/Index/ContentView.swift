@@ -67,14 +67,23 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Body tab
+    // MARK: - Main app tabs
     //
-    // Phase 4 destination. Phase 5/6 will introduce a TabView when the
-    // Fitness and Nutrition module screens land; for now Body is the
-    // single tab the active user lands on.
+    // TabView containing every module the active Profile has enabled.
+    // Body is always present until disabled in Settings; Fitness lands
+    // in Phase 5; Nutrition lands in Phase 6.
     private func bodyTabPlaceholder(profile: Profile) -> some View {
-        NavigationStack {
-            BodyView()
+        TabView {
+            if profile.enabledModules.contains(.body) {
+                Tab("Body", systemImage: "scalemass") {
+                    NavigationStack { BodyView() }
+                }
+            }
+            if profile.enabledModules.contains(.fitness) {
+                Tab("Fitness", systemImage: "figure.run") {
+                    NavigationStack { FitnessMainView() }
+                }
+            }
         }
     }
 
