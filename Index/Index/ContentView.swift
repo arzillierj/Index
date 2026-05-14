@@ -10,6 +10,8 @@ struct ContentView: View {
     @Environment(ProfileService.self) private var profileService
     @Environment(HealthKitService.self) private var hkService
 
+    @State private var showStoreResetAlert = false
+
     var body: some View {
         Group {
             if let orphan = profileService.orphanProfileForMigration {
@@ -32,7 +34,20 @@ struct ContentView: View {
             if hkService.modelContext == nil {
                 hkService.modelContext = modelContext
             }
+
+            // Surface the migration-failure recovery alert once, if the
+            // ModelContainer init had to wipe the store on this launch.
+            if UserDefaults.standard.bool(forKey: IndexApp.storeResetFlagKey) {
+                showStoreResetAlert = true
+                UserDefaults.standard.set(false, forKey: IndexApp.storeResetFlagKey)
+            }
+
             await hkService.bootstrapIfAuthorized()
+        }
+        .alert("Local data was reset", isPresented: $showStoreResetAlert) {
+            Button("OK") {}
+        } message: {
+            Text("Your local data couldn't be migrated and was reset. Your Apple Health data is unaffected and will re-sync.")
         }
     }
 

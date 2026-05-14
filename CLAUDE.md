@@ -71,7 +71,24 @@ If a new model can't satisfy these, the problem is the model design, not the rul
 - **±5-minute match window** for reconciling Apple Watch workouts with manual logs.
 - **Pure-static services for math** (`BodyCalculations`, `MetricsEngine`, eventual `BrainService`). No state, no fetching — callers pass `@Query` data in.
 - **Profile abstraction from day one.** There is no hard-coded "Yannis." Every screen reads the active profile via `ProfileService`.
-- **Migrations are lightweight-only.** Every schema change is a new `VersionedSchema` + a `.lightweight(from:to:)` stage in `IndexMigrationPlan`. If a change needs a custom migration, redesign the change.
+- **Migrations are lightweight-only.** See "Schema evolution rules" below — if a change can't be made via lightweight migration, redesign the change.
+
+## Schema evolution rules
+
+The first attempt at versioned migrations (V1 / V2 / V3 + `IndexMigrationPlan`) generated **"Duplicate version checksums detected"** because each VersionedSchema's `.models` returned the same compile-time Swift class types. The proper SwiftData per-version snapshot pattern (nested `@Model` declarations inside each VersionedSchema enum) wasn't applied. For purely additive changes the simpler approach is to drop VersionedSchema entirely and rely on SwiftData's automatic lightweight migration, which is what `IndexSchema` now does.
+
+These rules are non-negotiable. Violating them invalidates every prior schema evolution decision.
+
+- **Only additive changes between versions.** Add fields, add models. Anything else (rename / delete / type change) is a redesign, not a migration.
+- **Never delete a field.** Mark unused fields with a `// DEPRECATED:` comment explaining when use stopped and why. The column stays in the model definition forever.
+- **Never rename a field.** Add a new field with the new name, leave the old one in place (deprecated), and migrate readers over time.
+- **Never change a field's type.** Same pattern as rename — add a new field of the new type, deprecate the old one.
+- **Every new field must have a default value or be Swift-optional.** Required for SwiftData's lightweight migration to populate stored rows automatically. Already a CloudKit-shape requirement.
+- **No VersionedSchema declarations for additive changes.** SwiftData lightweight migration handles them automatically when you give the ModelContainer a single `Schema(IndexSchema.models)`.
+- **If a non-additive change is ever needed**, that's the moment to introduce proper VersionedSchema snapshots with nested `@Model` types per version. Don't reach for them prophylactically.
+- **Every schema change requires a clean build + device test before committing.** Not simulator-only. The "Duplicate version checksums" incident reproduced on device but not on a fresh simulator install — schema evolution has to be verified against an existing store.
+- **Every schema change commit must include a `// SCHEMA:` marker line in the message body** so the schema-related commits are findable via `git log --grep`.
+- **The ModelContainer init in `IndexApp` is wrapped in do/catch.** On any migration failure the SwiftData store files are wiped and ContentView surfaces a one-time "Local data was reset" alert. Self-healing recovery — but its existence is not a license to ship risky schema changes.
 
 ## Commit conventions
 

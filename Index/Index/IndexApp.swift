@@ -3,63 +3,40 @@ import SwiftData
 
 @main
 struct IndexApp: App {
+    /// Key set in ApplicationSupport-wipe recovery so ContentView can
+    /// surface a one-time "your data was reset" alert on next render.
+    static let storeResetFlagKey = "storeResetDueToMigrationFailure"
+
     let modelContainer: ModelContainer = {
-        let schema = Schema(IndexSchemaV3.models)
-        // Local SwiftData store. The CloudKit container is intentionally NOT
-        // configured yet — pending paid Developer Program enrollment. When
-        // enabled, the ModelConfiguration gets
-        //   cloudKitDatabase: .private("iCloud.com.yanni.Index")
-        // and IndexSchemaV1 ships unchanged (all properties default, all
-        // relationships optional, no @Attribute(.unique)).
+        let schema = Schema(IndexSchema.models)
+        // Local SwiftData store. CloudKit is intentionally NOT configured
+        // yet — pending paid Developer Program enrollment. When enabled,
+        // ModelConfiguration adds `cloudKitDatabase: .private(...)` and
+        // the model list ships unchanged.
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+
         do {
-            return try ModelContainer(
-                for: schema,
-                migrationPlan: IndexMigrationPlan.self,
-                configurations: [config]
-            )
+            return try ModelContainer(for: schema, configurations: [config])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // SCHEMA MIGRATION FAILED — the on-disk store can't be
+            // reconciled with the current model definitions. Wipe the
+            // store files and retry. Profile / UserExercise / weight /
+            // workout rows all go with it, but the app remains
+            // launchable; HK data re-syncs from Apple Health on next
+            // bootstrap.
+            print("SCHEMA MIGRATION FAILED: \(error)")
+            Self.deleteStoreFiles()
+            UserDefaults.standard.set(true, forKey: storeResetFlagKey)
+            do {
+                return try ModelContainer(for: schema, configurations: [config])
+            } catch {
+                fatalError("Fresh ModelContainer init also failed after store wipe: \(error)")
+            }
         }
     }()
 
     @State private var profileService = ProfileService(identity: AppDependencies.identity)
     @State private var hkService = HealthKitService()
-
-    init() {
-        // ONE-SHOT DATA WIPE — remove after running once on device.
-        //
-        // Recovery path for a corrupted WeightEntry (~5×10³⁸ kg) that
-        // traps BodyView.formatKg → Int(kg) on launch before any UI can
-        // be reached. Reinstalling the app from the home screen did
-        // not clear the SwiftData store, so the wipe has to run from
-        // inside the app itself before @Query observers fire.
-        //
-        // Runs in init() so it commits before WindowGroup → ContentView
-        // body evaluates and triggers @Query. Profile, UserExercise,
-        // FoodProduct, and PhotoEstimateLog rows are preserved.
-        let wipeKey = "didOneShotWipe_2026_05_14"
-        if !UserDefaults.standard.bool(forKey: wipeKey) {
-            performOneShotWipe()
-            UserDefaults.standard.set(true, forKey: wipeKey)
-        }
-    }
-
-    private func performOneShotWipe() {
-        let ctx = modelContainer.mainContext
-        try? ctx.delete(model: WeightEntry.self)
-        try? ctx.delete(model: WorkoutSession.self)
-        try? ctx.delete(model: StrengthSession.self)
-        try? ctx.delete(model: ExercisePerformance.self)
-        try? ctx.delete(model: SetEntry.self)
-        try? ctx.delete(model: NutritionEntry.self)
-        try? ctx.delete(model: DailyHealthMetrics.self)
-        do {
-            try ctx.save()
-        } catch {
-            print("[OneShotWipe] save failed: \(error)")
-        }
-    }
 
     var body: some Scene {
         WindowGroup {
@@ -68,5 +45,26 @@ struct IndexApp: App {
                 .environment(hkService)
         }
         .modelContainer(modelContainer)
+    }
+
+    /// Removes the SwiftData store files from Application Support so the
+    /// next ModelContainer init starts from scratch. Used by the
+    /// migration-failure recovery path above.
+    ///
+    /// The default file names are `default.store`, `default.store-shm`,
+    /// and `default.store-wal` (SQLite WAL companions).
+    private static func deleteStoreFiles() {
+        let fm = FileManager.default
+        guard let supportURL = try? fm.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        ) else { return }
+
+        for suffix in ["", "-shm", "-wal"] {
+            let url = supportURL.appendingPathComponent("default.store\(suffix)")
+            try? fm.removeItem(at: url)
+        }
     }
 }
