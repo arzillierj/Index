@@ -124,6 +124,25 @@ final class Profile {
     /// Existing rows automatically pick up false via SwiftData
     /// lightweight migration.
     var eatBackWorkoutCalories: Bool = false
+    /// SCHEMA: additive — gates the "Log" toolbar button in BodyView.
+    /// Default false because automated sources (RENPHO via Apple
+    /// Health) are the primary write path; manual logging clutters
+    /// the UI for users with a smart scale. The toggle is exposed in
+    /// Settings → Manual logging. Existing rows backfill `false` via
+    /// SwiftData lightweight migration. HealthKit auto-imports
+    /// continue regardless; editing existing entries via
+    /// WeightEntryDetailSheet is unaffected — the toggle only hides
+    /// the create-new entry point.
+    var manualWeightLoggingEnabled: Bool = false
+    /// SCHEMA: additive — gates the "Log" toolbar button in
+    /// FitnessMainView (and through it every manual workout sheet
+    /// and the active strength session entry point). Same reasoning
+    /// + same migration semantics as `manualWeightLoggingEnabled`:
+    /// Apple Watch auto-imports are the primary write path; manual
+    /// entry is off by default. WorkoutDetailView /
+    /// StrengthSessionDetailView remain reachable for editing or
+    /// deleting historical sessions.
+    var manualFitnessLoggingEnabled: Bool = false
     var appleHealthAuthorized: Bool = false
     var onboardingCompleted: Bool = false
     var createdAt: Date = Date.now
@@ -143,6 +162,8 @@ final class Profile {
         calorieAdjustmentKcal: Double = 0,
         proteinTargetG: Double = 150,
         eatBackWorkoutCalories: Bool = false,
+        manualWeightLoggingEnabled: Bool = false,
+        manualFitnessLoggingEnabled: Bool = false,
         appleHealthAuthorized: Bool = false,
         onboardingCompleted: Bool = false,
         createdAt: Date = .now
@@ -161,6 +182,8 @@ final class Profile {
         self.calorieAdjustmentKcal = calorieAdjustmentKcal
         self.proteinTargetG = proteinTargetG
         self.eatBackWorkoutCalories = eatBackWorkoutCalories
+        self.manualWeightLoggingEnabled = manualWeightLoggingEnabled
+        self.manualFitnessLoggingEnabled = manualFitnessLoggingEnabled
         self.appleHealthAuthorized = appleHealthAuthorized
         self.onboardingCompleted = onboardingCompleted
         self.createdAt = createdAt

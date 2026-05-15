@@ -60,6 +60,7 @@ struct SettingsView: View {
                         profileSection
                         goalSection
                         modulesSection
+                        manualLoggingSection
                         strengthSection
                         appleHealthSection
                         dataSection
@@ -272,6 +273,68 @@ struct SettingsView: View {
             Toggle("", isOn: bound)
                 .labelsHidden()
                 .disabled(alwaysOn)
+                .tint(IndexPalette.Module.settings)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - Manual logging
+    //
+    // Two toggles that gate the "Log" toolbar button in BodyView /
+    // FitnessMainView. Both default off — automated sources (Apple
+    // Health from RENPHO for weight, Apple Watch for workouts) are
+    // assumed to be the primary write path. HealthKit auto-imports
+    // and tap-to-edit on past entries are unaffected.
+
+    private var manualLoggingSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionCaption("Manual logging")
+            VStack(spacing: 0) {
+                manualLoggingRow(
+                    label: "Weight",
+                    isOn: Binding(
+                        get: { profile?.manualWeightLoggingEnabled ?? false },
+                        set: { isOn in
+                            do {
+                                try profileService.setManualWeightLoggingEnabled(isOn, in: context)
+                            } catch {
+                                saveErrorMessage = "Couldn't update setting. Try again."
+                            }
+                        }
+                    )
+                )
+                divider
+                manualLoggingRow(
+                    label: "Fitness",
+                    isOn: Binding(
+                        get: { profile?.manualFitnessLoggingEnabled ?? false },
+                        set: { isOn in
+                            do {
+                                try profileService.setManualFitnessLoggingEnabled(isOn, in: context)
+                            } catch {
+                                saveErrorMessage = "Couldn't update setting. Try again."
+                            }
+                        }
+                    )
+                )
+            }
+            .background(IndexPalette.Surface.card)
+            .clipShape(.rect(cornerRadius: 12))
+            Text("When off, the Log button is hidden. HealthKit auto-imports continue regardless.")
+                .font(.caption2)
+                .foregroundStyle(IndexPalette.Text.secondary)
+                .padding(.horizontal, 4)
+        }
+    }
+
+    private func manualLoggingRow(label: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(IndexPalette.Text.primary)
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
                 .tint(IndexPalette.Module.settings)
         }
         .padding(.horizontal, 14)

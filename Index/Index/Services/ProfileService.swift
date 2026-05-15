@@ -160,6 +160,14 @@ final class ProfileService {
         try mutate(in: context) { $0.eatBackWorkoutCalories = enabled }
     }
 
+    func setManualWeightLoggingEnabled(_ enabled: Bool, in context: ModelContext) throws {
+        try mutate(in: context) { $0.manualWeightLoggingEnabled = enabled }
+    }
+
+    func setManualFitnessLoggingEnabled(_ enabled: Bool, in context: ModelContext) throws {
+        try mutate(in: context) { $0.manualFitnessLoggingEnabled = enabled }
+    }
+
     func updateProteinTarget(_ grams: Double, in context: ModelContext) throws {
         try mutate(in: context) { $0.proteinTargetG = grams }
     }

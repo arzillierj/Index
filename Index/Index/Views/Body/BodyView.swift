@@ -59,12 +59,19 @@ struct BodyView: View {
                             .font(.title3)
                             .foregroundStyle(IndexPalette.Text.secondary)
                     }
-                    Button {
-                        showLogSheet = true
-                    } label: {
-                        Text("Log")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(IndexPalette.Module.body)
+                    // Manual logging is opt-in (Settings → Manual
+                    // logging). Hidden by default so users who write
+                    // weight from RENPHO via HealthKit aren't shown a
+                    // redundant entry point. HK auto-imports +
+                    // tap-to-edit history rows still work either way.
+                    if profile?.manualWeightLoggingEnabled == true {
+                        Button {
+                            showLogSheet = true
+                        } label: {
+                            Text("Log")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(IndexPalette.Module.body)
+                        }
                     }
                 }
             }

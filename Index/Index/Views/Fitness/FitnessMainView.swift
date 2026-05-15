@@ -66,12 +66,19 @@ struct FitnessMainView: View {
                             .font(.title3)
                             .foregroundStyle(IndexPalette.Text.secondary)
                     }
-                    Button {
-                        showLogSheet = true
-                    } label: {
-                        Text("Log")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(IndexPalette.Module.fitness)
+                    // Manual logging is opt-in (Settings → Manual
+                    // logging). Hidden by default for users on Apple
+                    // Watch auto-import; the workout feed populates
+                    // automatically without a manual entry point.
+                    // Tap-to-edit on past sessions stays available.
+                    if profile?.manualFitnessLoggingEnabled == true {
+                        Button {
+                            showLogSheet = true
+                        } label: {
+                            Text("Log")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(IndexPalette.Module.fitness)
+                        }
                     }
                 }
             }
