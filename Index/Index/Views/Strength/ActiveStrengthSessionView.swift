@@ -15,13 +15,31 @@ import Combine
 ///     WorkoutSession(type: .strength, strengthSessionId: session.id) is
 ///     inserted so the cross-module Fitness surfaces pick it up.
 struct ActiveStrengthSessionView: View {
-    var seedExercise: UserExercise? = nil
+    var seedExercise: UserExercise?
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
-    @Query(sort: \StrengthSession.date, order: .reverse) private var allSessions: [StrengthSession]
+    /// Audit H17 — bounded to last 365 days. The view uses
+    /// `allSessions` only to seed inputs from the user's last logged
+    /// set per exercise (`lastSessionPerformance`); a year of training
+    /// history is far more than enough for that lookup, and the bound
+    /// stops SwiftData from transitively pulling every SetEntry ever
+    /// logged through the cascade chain.
+    @Query private var allSessions: [StrengthSession]
+    /// UserExercise library is intentionally tiny (max 10 starter
+    /// catalog items, soft-hide via DQ4) — left unbounded.
     @Query(sort: \UserExercise.displayOrder) private var userExercises: [UserExercise]
+
+    init(seedExercise: UserExercise? = nil) {
+        self.seedExercise = seedExercise
+        let cutoff = Calendar.current.date(byAdding: .day, value: -365, to: .now) ?? .distantPast
+        _allSessions = Query(
+            filter: #Predicate<StrengthSession> { $0.date > cutoff },
+            sort: \StrengthSession.date,
+            order: .reverse
+        )
+    }
 
     @State private var session: StrengthSession? = nil
     @State private var currentExercise: UserExercise? = nil

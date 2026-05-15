@@ -11,11 +11,25 @@ struct ExerciseDetailView: View {
 
     @Environment(\.modelContext) private var context
 
-    @Query(sort: \StrengthSession.date, order: .reverse)
-    private var sessions: [StrengthSession]
+    /// Audit H17 — bounded to last 365 days. Matches the longest
+    /// progress range (1Y) the chart can render; older sessions
+    /// would never appear in the chart anyway, so they don't need
+    /// to be in the @Query result set. Saves transitively pulling
+    /// every SetEntry ever logged.
+    @Query private var sessions: [StrengthSession]
 
     @State private var range: ProgressRange = .threeMonths
     @State private var showActiveSession = false
+
+    init(exercise: UserExercise) {
+        self.exercise = exercise
+        let cutoff = Calendar.current.date(byAdding: .day, value: -365, to: .now) ?? .distantPast
+        _sessions = Query(
+            filter: #Predicate<StrengthSession> { $0.date > cutoff },
+            sort: \StrengthSession.date,
+            order: .reverse
+        )
+    }
 
     enum ProgressRange: String, CaseIterable, Identifiable {
         case oneMonth, threeMonths, oneYear
