@@ -10,6 +10,21 @@ import SwiftData
 /// inserted with source = .manual.
 struct LogMealManualSheet: View {
     let editing: NutritionEntry?
+    /// When `editing` is nil, pre-fills the label field — used by the
+    /// barcode flow when OFF lookup fails and the user falls back to
+    /// manual entry, AND by the frequent-foods chip row on Nutrition main
+    /// (along with the four macro pre-fills below). Ignored in edit mode
+    /// (the entry's own label wins).
+    var prefilledLabel: String? = nil
+    /// When non-nil and `editing` is nil, pre-fill the macro fields. Used
+    /// by the frequent-foods chip flow so the user can save the same
+    /// macros as the most recent entry of that label with one tap. Each
+    /// is independent — partial pre-fills (e.g., only kcal known) are
+    /// allowed.
+    var prefilledKcal:    Double? = nil
+    var prefilledProtein: Double? = nil
+    var prefilledCarbs:   Double? = nil
+    var prefilledFat:     Double? = nil
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -156,6 +171,22 @@ struct LogMealManualSheet: View {
             fatText = entry.fat > 0 ? SafeFormat.int(entry.fat) : ""
             mealType = entry.mealType
             date = entry.date
+        } else {
+            if let prefilledLabel, label.isEmpty {
+                label = prefilledLabel
+            }
+            if let kcal = prefilledKcal, kcalText.isEmpty {
+                kcalText = SafeFormat.int(kcal)
+            }
+            if let protein = prefilledProtein, proteinText.isEmpty, protein > 0 {
+                proteinText = SafeFormat.int(protein)
+            }
+            if let carbs = prefilledCarbs, carbsText.isEmpty, carbs > 0 {
+                carbsText = SafeFormat.int(carbs)
+            }
+            if let fat = prefilledFat, fatText.isEmpty, fat > 0 {
+                fatText = SafeFormat.int(fat)
+            }
         }
         Task { @MainActor in
             focusedField = editing == nil ? .label : nil

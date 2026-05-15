@@ -32,16 +32,32 @@ struct NutritionMainView: View {
     )
     private var workouts: [WorkoutSession]
 
-    @State private var showLogMethod = false
-    @State private var showManualEntry = false
     @State private var showScanner = false
+    @State private var manualEntryPrefill: ManualEntryPrefill? = nil
     @State private var selectedEntry: NutritionEntry? = nil
     @State private var editTarget: NutritionEntry? = nil
-    @State private var pendingAfterMethod: PendingAfterMethod? = nil
+    @State private var scannedBarcode: ScannedBarcode? = nil
     @State private var pendingEditTarget: NutritionEntry? = nil
-    @State private var lastScannedCode: String? = nil
+    @State private var pendingScannedBarcode: String? = nil
+    @State private var pendingFallbackBarcode: String? = nil
 
-    private enum PendingAfterMethod { case manual, scan }
+    /// .sheet(item:) wrappers — small Identifiable shells so the same
+    /// sheet slot can route to either a fresh entry, a barcode-fallback
+    /// entry (manual, label-only), or a frequent-foods chip tap
+    /// (label + full macros pre-filled), and so the result sheet's item
+    /// drives presentation.
+    struct ManualEntryPrefill: Identifiable {
+        let id = UUID()
+        let label: String?
+        var kcal: Double? = nil
+        var protein: Double? = nil
+        var carbs: Double? = nil
+        var fat: Double? = nil
+    }
+    struct ScannedBarcode: Identifiable {
+        let id: String
+        var code: String { id }
+    }
 
     private var profile: Profile? { profileService.activeProfile }
 
@@ -49,30 +65,30 @@ struct NutritionMainView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 insightSection
-                todayHero
+                heroRow
                 macroGrid
+                actionRow
+                frequentChipsSection
                 todaysLogSection
             }
             .padding()
         }
         .navigationTitle("Nutrition")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showLogMethod = true
-                } label: {
-                    Text("Log").fontWeight(.semibold)
-                }
-            }
-        }
-        .sheet(isPresented: $showLogMethod, onDismiss: routeAfterMethodSheet) {
-            LogMealMethodSheet { method in
-                pendingAfterMethod = (method == .scan) ? .scan : .manual
-                showLogMethod = false
-            }
-        }
-        .sheet(isPresented: $showManualEntry) {
-            LogMealManualSheet(editing: nil)
+        // DECISION: No toolbar "Log" button. Phase 6 ships with two
+        // first-class action buttons on the main screen itself (Scan
+        // barcode / Enter manually) — duplicating either as a toolbar
+        // shortcut creates a "which one does it open?" ambiguity. The
+        // two on-screen buttons are anchored above the daily log so
+        // they remain thumb-reachable without scrolling.
+        .sheet(item: $manualEntryPrefill) { prefill in
+            LogMealManualSheet(
+                editing: nil,
+                prefilledLabel: prefill.label,
+                prefilledKcal: prefill.kcal,
+                prefilledProtein: prefill.protein,
+                prefilledCarbs: prefill.carbs,
+                prefilledFat: prefill.fat
+            )
         }
         .sheet(item: $selectedEntry, onDismiss: routeAfterDetailSheet) { entry in
             MealDetailView(entry: entry, onRequestEdit: {
@@ -82,51 +98,92 @@ struct NutritionMainView: View {
         .sheet(item: $editTarget) { entry in
             LogMealManualSheet(editing: entry)
         }
-        .fullScreenCover(isPresented: $showScanner) {
+        .sheet(item: $scannedBarcode, onDismiss: routeAfterResultSheet) { wrapper in
+            BarcodeResultSheet(
+                barcode: wrapper.code,
+                onFallbackToManual: { code in
+                    pendingFallbackBarcode = code
+                    scannedBarcode = nil
+                }
+            )
+        }
+        .fullScreenCover(isPresented: $showScanner, onDismiss: routeAfterScanner) {
             BarcodeScannerView(
                 onDetect: { code in
-                    lastScannedCode = code
+                    pendingScannedBarcode = code
                     showScanner = false
                 },
                 onCancel: { showScanner = false }
             )
         }
-        .alert(
-            "Scanned barcode",
-            isPresented: Binding(
-                get: { lastScannedCode != nil },
-                set: { if !$0 { lastScannedCode = nil } }
-            ),
-            presenting: lastScannedCode
-        ) { _ in
-            Button("OK") { lastScannedCode = nil }
-        } message: { code in
-            Text("\(code)\n\nLookup + result sheet land in step 28.")
+    }
+
+    // MARK: - Action row
+
+    private var actionRow: some View {
+        HStack(spacing: 12) {
+            actionButton(
+                title: "Scan barcode",
+                icon: "barcode.viewfinder",
+                action: { showScanner = true }
+            )
+            actionButton(
+                title: "Enter manually",
+                icon: "square.and.pencil",
+                action: { manualEntryPrefill = ManualEntryPrefill(label: nil) }
+            )
         }
+    }
+
+    private func actionButton(
+        title: String,
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.title3)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(.rect(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Sheet sequencing
     //
     // iOS won't present a new sheet while the prior is still dismissing.
-    // Each transition (method → manual, detail → edit) sets a "pending"
-    // intent and arms it from the dismissed sheet's `onDismiss`.
-
-    private func routeAfterMethodSheet() {
-        guard let action = pendingAfterMethod else { return }
-        pendingAfterMethod = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            switch action {
-            case .manual: showManualEntry = true
-            case .scan:   showScanner = true
-            }
-        }
-    }
+    // Each transition (detail → edit, scanner → result, result → manual
+    // fallback) sets a "pending" intent and arms it from the dismissed
+    // sheet's `onDismiss`.
 
     private func routeAfterDetailSheet() {
         guard let entry = pendingEditTarget else { return }
         pendingEditTarget = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             editTarget = entry
+        }
+    }
+
+    private func routeAfterScanner() {
+        guard let code = pendingScannedBarcode else { return }
+        pendingScannedBarcode = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            scannedBarcode = ScannedBarcode(id: code)
+        }
+    }
+
+    private func routeAfterResultSheet() {
+        guard let code = pendingFallbackBarcode else { return }
+        pendingFallbackBarcode = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            manualEntryPrefill = ManualEntryPrefill(label: "Barcode \(code)")
         }
     }
 
@@ -157,62 +214,173 @@ struct NutritionMainView: View {
         }
     }
 
-    // MARK: - Today hero
+    // MARK: - Hero row (Calories + Protein side-by-side)
+    //
+    // Two equal-width hero cells. Calories on the left (with the optional
+    // workout-adjustment caption), Protein on the right. Equal visual
+    // weight communicates "the two metrics that matter most for cutting"
+    // — neither dominates.
+    //
+    // Big number wraps to its own line above the "/ target unit" subtitle
+    // (rather than HStack-ing them) so a 4-digit consumed + 4-digit target
+    // doesn't crowd at iPhone SE widths. minimumScaleFactor protects
+    // against the worst case if the number ever grows past 4 digits.
 
-    private var todayHero: some View {
-        VStack(alignment: .leading, spacing: 16) {
+    private var heroRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Today")
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
                 .tracking(0.8)
-
-            heroLine(
-                label: "Calories",
-                consumed: todayKcal,
-                target: computedTargets?.calories ?? 0,
-                unit: "kcal",
-                caption: workoutCaption
-            )
-
-            heroLine(
-                label: "Protein",
-                consumed: todayProtein,
-                target: computedTargets?.protein ?? 0,
-                unit: "g",
-                caption: nil
-            )
+            HStack(alignment: .top, spacing: 10) {
+                heroCell(
+                    label: "Calories",
+                    consumed: todayKcal,
+                    target: computedTargets?.calories ?? 0,
+                    unit: "kcal",
+                    caption: workoutCaption
+                )
+                heroCell(
+                    label: "Protein",
+                    consumed: todayProtein,
+                    target: computedTargets?.protein ?? 0,
+                    unit: "g",
+                    caption: nil
+                )
+            }
         }
     }
 
-    private func heroLine(
+    private func heroCell(
         label: String,
         consumed: Double,
         target: Double,
         unit: String,
         caption: String?
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(SafeFormat.int(consumed))
-                    .font(.system(size: 40, weight: .semibold, design: .monospaced))
-                Text("/ \(SafeFormat.int(target)) \(unit)")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
-            if let caption {
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text(SafeFormat.int(consumed))
+                .font(.system(size: 36, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text("/ \(SafeFormat.int(target)) \(unit)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            // Caption slot is always rendered (invisible when nil) so
+            // both cells remain the same height side-by-side.
+            Text(caption ?? " ")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .opacity(caption == nil ? 0 : 1)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     private var workoutCaption: String? {
         guard let kcal = computedTargets?.workoutCalories, kcal > 0 else { return nil }
         return "+\(SafeFormat.int(kcal)) kcal from workouts"
+    }
+
+    // MARK: - Frequent foods chips (behavior-based, last 30 days)
+    //
+    // No explicit favorites. Top 5 most-frequent labels logged in the
+    // last 30 days; chip tap pre-fills LogMealManualSheet with the most
+    // recent entry's macros. Hidden when fewer than 3 distinct items
+    // qualify (new user / very varied diet).
+
+    @ViewBuilder
+    private var frequentChipsSection: some View {
+        let chips = frequentChips
+        if !chips.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Frequent")
+                    .font(.caption.smallCaps())
+                    .foregroundStyle(.secondary)
+                    .tracking(0.8)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(chips) { chip in
+                            frequentChipButton(chip)
+                        }
+                    }
+                    // Padding prevents shadow / focus-ring clipping at
+                    // the row edges when chips overflow.
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    private func frequentChipButton(_ chip: FrequentChipData) -> some View {
+        Button {
+            manualEntryPrefill = ManualEntryPrefill(
+                label: chip.label,
+                kcal: chip.kcal,
+                protein: chip.protein,
+                carbs: chip.carbs,
+                fat: chip.fat
+            )
+        } label: {
+            Text(chip.label)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(minHeight: 44)
+                .background(Capsule().fill(Color(.tertiarySystemFill)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private struct FrequentChipData: Identifiable {
+        let id = UUID()
+        let label: String
+        let kcal: Double
+        let protein: Double
+        let carbs: Double
+        let fat: Double
+    }
+
+    /// Group last-30-day entries by lowercased+trimmed label, take top 5
+    /// by count, hide when fewer than 3 distinct items qualify. Chip
+    /// pre-fill macros come from the *most recent* entry of each group
+    /// (per spec: when the same label has different macros across days,
+    /// most recent wins — user can adjust before saving).
+    private var frequentChips: [FrequentChipData] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .distantPast
+        let recent = allEntries.filter { entry in
+            entry.date >= cutoff
+                && !entry.label.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        var groups: [String: [NutritionEntry]] = [:]
+        for entry in recent {
+            let key = entry.label.lowercased().trimmingCharacters(in: .whitespaces)
+            groups[key, default: []].append(entry)
+        }
+        let sortedGroups = groups.values.sorted { $0.count > $1.count }
+        let top5 = Array(sortedGroups.prefix(5))
+        guard top5.count >= 3 else { return [] }
+        return top5.compactMap { entries -> FrequentChipData? in
+            guard let mostRecent = entries.max(by: { $0.date < $1.date }) else { return nil }
+            return FrequentChipData(
+                label: mostRecent.label,
+                kcal: mostRecent.kcal,
+                protein: mostRecent.protein,
+                carbs: mostRecent.carbs,
+                fat: mostRecent.fat
+            )
+        }
     }
 
     // MARK: - Macro grid
