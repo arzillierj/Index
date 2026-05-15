@@ -109,6 +109,20 @@ struct ContentView: View {
         } message: {
             Text("Your local data couldn't be migrated and was reset. Your Apple Health data is unaffected and will re-sync.")
         }
+        // Notification-tap routing. NotificationService posts this
+        // broadcast only when the app was NOT active at tap time
+        // (cold launch from notification, or background resume), so
+        // there's no risk of yanking the user mid-task. Tab swap
+        // honors the destinationTab payload.
+        .onReceive(NotificationCenter.default.publisher(for: NotificationService.tabRouteNotificationName)) { note in
+            guard let tab = note.userInfo?[NotificationService.tabRouteUserInfoKey] as? String else { return }
+            switch tab {
+            case "body":     selectedTab = .body
+            case "fitness":  selectedTab = .fitness
+            case "nutrition": selectedTab = .nutrition
+            default: break
+            }
+        }
     }
 
     // MARK: - Hard error screen

@@ -143,6 +143,18 @@ final class Profile {
     /// StrengthSessionDetailView remain reachable for editing or
     /// deleting historical sessions.
     var manualFitnessLoggingEnabled: Bool = false
+    /// SCHEMA: additive — local notification on every genuinely-new
+    /// HK-imported WorkoutSession (post-UUID-dedup). Default false;
+    /// iOS permission is requested the first time the user flips this
+    /// ON via Settings. Manual workout logs do NOT trigger
+    /// notifications (the user just hit Save themselves). Existing
+    /// rows backfill the default via SwiftData lightweight migration.
+    var notifyOnNewWorkout: Bool = false
+    /// SCHEMA: additive — same semantics as `notifyOnNewWorkout`,
+    /// scoped to HK-imported WeightEntry rows. Manual weight logs
+    /// don't fire. Body includes a (-delta from previous) suffix when
+    /// there's a prior entry to compare against.
+    var notifyOnNewWeight: Bool = false
     var appleHealthAuthorized: Bool = false
     var onboardingCompleted: Bool = false
     var createdAt: Date = Date.now
@@ -164,6 +176,8 @@ final class Profile {
         eatBackWorkoutCalories: Bool = false,
         manualWeightLoggingEnabled: Bool = false,
         manualFitnessLoggingEnabled: Bool = false,
+        notifyOnNewWorkout: Bool = false,
+        notifyOnNewWeight: Bool = false,
         appleHealthAuthorized: Bool = false,
         onboardingCompleted: Bool = false,
         createdAt: Date = .now
@@ -184,6 +198,8 @@ final class Profile {
         self.eatBackWorkoutCalories = eatBackWorkoutCalories
         self.manualWeightLoggingEnabled = manualWeightLoggingEnabled
         self.manualFitnessLoggingEnabled = manualFitnessLoggingEnabled
+        self.notifyOnNewWorkout = notifyOnNewWorkout
+        self.notifyOnNewWeight = notifyOnNewWeight
         self.appleHealthAuthorized = appleHealthAuthorized
         self.onboardingCompleted = onboardingCompleted
         self.createdAt = createdAt

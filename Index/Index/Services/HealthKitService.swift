@@ -44,6 +44,7 @@ final class HealthKitService {
     @ObservationIgnored private var ctx: ModelContext { modelContainer.mainContext }
     @ObservationIgnored private let store = HKHealthStore()
     @ObservationIgnored private var workoutAnchor: HKQueryAnchor? = nil
+    @ObservationIgnored private let notificationService: NotificationService
 
     // Phase 7 — observer-stop API. Retain references so a Settings
     // toggle-off can call `store.stop(query:)`. Per audit DQ10:
@@ -52,8 +53,9 @@ final class HealthKitService {
     @ObservationIgnored private var bodyMassObserverQuery: HKObserverQuery? = nil
     @ObservationIgnored private var workoutAnchoredQuery: HKAnchoredObjectQuery? = nil
 
-    init(modelContainer: ModelContainer) {
+    init(modelContainer: ModelContainer, notificationService: NotificationService) {
         self.modelContainer = modelContainer
+        self.notificationService = notificationService
     }
 
     // MARK: - Toggle helpers
@@ -298,6 +300,14 @@ final class HealthKitService {
         )
         guard ((try? ctx.fetch(desc)) ?? []).isEmpty else { return }
 
+        // Capture the previous most-recent NON-deleted entry BEFORE
+        // inserting the new one — so the delta in the notification is
+        // "new vs prior", not "new vs new". `deletedFromIndex` is
+        // respected here even though the dedup predicates don't:
+        // a swipe-deleted entry shouldn't be the comparison baseline
+        // for a notification.
+        let previousKg = mostRecentWeightKg(excluding: nil)
+
         let entry = WeightEntry(
             date: date,
             weightKg: kg,
@@ -309,6 +319,43 @@ final class HealthKitService {
             hkSampleUUID: bmUUIDString
         )
         ctx.insert(entry)
+
+        await maybeNotifyNewWeight(weightKg: kg, previousKg: previousKg)
+    }
+
+    /// Reads the most recent non-deleted WeightEntry as the baseline
+    /// for the notification body's delta segment. `excluding` is here
+    /// for symmetry with future call sites; current usage passes nil
+    /// because the new entry hasn't been inserted yet.
+    private func mostRecentWeightKg(excluding: PersistentIdentifier?) -> Double? {
+        var desc = FetchDescriptor<WeightEntry>(
+            predicate: #Predicate { !$0.deletedFromIndex },
+            sortBy: [SortDescriptor(\WeightEntry.date, order: .reverse)]
+        )
+        desc.fetchLimit = 1
+        return (try? ctx.fetch(desc))?.first?.weightKg
+    }
+
+    /// Notification fires when (a) the profile flag is on AND
+    /// (b) iOS-level permission is granted. Both checks deliberately
+    /// stay inside this method so the HK observer doesn't need to
+    /// know about either gate.
+    private func maybeNotifyNewWeight(weightKg: Double, previousKg: Double?) async {
+        guard let profile = fetchActiveProfile(), profile.notifyOnNewWeight else { return }
+        guard await notificationService.isAuthorized() else { return }
+        let delta: Double? = previousKg.map { weightKg - $0 }
+        notificationService.scheduleNewWeight(weightKg: weightKg, deltaKg: delta)
+    }
+
+    /// Returns the first onboarding-completed Profile in the store.
+    /// The notification path needs the profile's notify flag; rather
+    /// than couple HealthKitService to ProfileService just for that
+    /// read, fetch once-per-notification — Profile is small and there
+    /// is at most one row to scan.
+    private func fetchActiveProfile() -> Profile? {
+        let desc = FetchDescriptor<Profile>()
+        let all = (try? ctx.fetch(desc)) ?? []
+        return all.first { $0.onboardingCompleted }
     }
 
     /// Finds the most recent sample of `id` within ±`window` of `date`
@@ -366,8 +413,11 @@ final class HealthKitService {
         }()
 
         let workouts = await fetchHKWorkouts(since: cutoff)
+        // Initial sync since last-sync-key cutoff (defaults to 7 days
+        // back on first launch). Bounded set; notify so the user sees
+        // anything that arrived while the app was closed.
         for workout in workouts {
-            await processHKWorkout(workout, context: ctx)
+            await processHKWorkout(workout, context: ctx, notifyOnInsert: true)
         }
         UserDefaults.standard.set(Date.now, forKey: Self.lastWorkoutSyncKey)
     }
@@ -389,8 +439,11 @@ final class HealthKitService {
         defer { isBackfilling = false }
 
         let workouts = await fetchHKWorkouts(since: startDate)
+        // Historical backfill — could be 50+ workouts going back to
+        // Jan 1. Suppress per-row notifications to avoid a banner
+        // storm on first launch after auth grant.
         for workout in workouts {
-            await processHKWorkout(workout, context: ctx)
+            await processHKWorkout(workout, context: ctx, notifyOnInsert: false)
         }
     }
 
@@ -422,7 +475,7 @@ final class HealthKitService {
                 }
                 guard let workouts = samples as? [HKWorkout], !workouts.isEmpty else { return }
                 for workout in workouts {
-                    await self.processHKWorkout(workout, context: self.ctx)
+                    await self.processHKWorkout(workout, context: self.ctx, notifyOnInsert: true)
                 }
             }
         }
@@ -477,7 +530,7 @@ final class HealthKitService {
     /// Neither dedup predicate filters on `deletedFromIndex` — that's
     /// the tombstone contract that prevents swipe-deletes from being
     /// re-resurrected by future imports.
-    private func processHKWorkout(_ workout: HKWorkout, context: ModelContext) async {
+    private func processHKWorkout(_ workout: HKWorkout, context: ModelContext, notifyOnInsert: Bool) async {
         let durationMin = Int(workout.duration / 60)
         guard durationMin >= 1 else { return }
 
@@ -539,6 +592,35 @@ final class HealthKitService {
             notes: "From Apple Health",
             hkWorkoutUUID: uuidString
         ))
+
+        if notifyOnInsert {
+            await maybeNotifyNewWorkout(
+                type: type,
+                durationMinutes: durationMin,
+                kcal: kcal,
+                avgHR: avgHR
+            )
+        }
+    }
+
+    /// Mirrors `maybeNotifyNewWeight` — gated on profile flag AND iOS
+    /// authorization. Pulls the avg HR / kcal off the new row's
+    /// fields rather than re-fetching, so the notification body is
+    /// stable even if the underlying HK sample changes later.
+    private func maybeNotifyNewWorkout(
+        type: WorkoutType,
+        durationMinutes: Int,
+        kcal: Double?,
+        avgHR: Int?
+    ) async {
+        guard let profile = fetchActiveProfile(), profile.notifyOnNewWorkout else { return }
+        guard await notificationService.isAuthorized() else { return }
+        notificationService.scheduleNewWorkout(
+            typeLabel: type.label,
+            durationMinutes: durationMinutes,
+            kcal: kcal,
+            avgHR: avgHR
+        )
     }
 
     /// v2-corrected mapping. Differences from v0:

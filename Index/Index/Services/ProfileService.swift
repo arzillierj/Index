@@ -168,6 +168,32 @@ final class ProfileService {
         try mutate(in: context) { $0.manualFitnessLoggingEnabled = enabled }
     }
 
+    /// Notification toggles are async because flipping ON requests
+    /// iOS permission first. If the user denies (or denied previously
+    /// in iOS Settings), throws so the caller can surface a one-time
+    /// "enable in iOS Settings" alert and leave the toggle off.
+    func setNotifyOnNewWorkout(
+        _ enabled: Bool,
+        notificationService: NotificationService,
+        in context: ModelContext
+    ) async throws {
+        if enabled {
+            try await notificationService.requestPermission()
+        }
+        try mutate(in: context) { $0.notifyOnNewWorkout = enabled }
+    }
+
+    func setNotifyOnNewWeight(
+        _ enabled: Bool,
+        notificationService: NotificationService,
+        in context: ModelContext
+    ) async throws {
+        if enabled {
+            try await notificationService.requestPermission()
+        }
+        try mutate(in: context) { $0.notifyOnNewWeight = enabled }
+    }
+
     func updateProteinTarget(_ grams: Double, in context: ModelContext) throws {
         try mutate(in: context) { $0.proteinTargetG = grams }
     }

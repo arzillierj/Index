@@ -23,6 +23,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ProfileService.self) private var profileService
     @Environment(HealthKitService.self) private var hkService
+    @Environment(NotificationService.self) private var notificationService
 
     // Sheet routing state — one item per editable field. Single
     // optional binding instead of one Bool per sheet so SwiftUI never
@@ -36,6 +37,7 @@ struct SettingsView: View {
     @State private var showResetConfirm = false
     @State private var showSignOutConfirm = false
     @State private var showDeleteAccountConfirm = false
+    @State private var showNotificationDeniedAlert = false
 
     enum SheetRoute: String, Identifiable {
         case name, age, height, sex
@@ -63,6 +65,7 @@ struct SettingsView: View {
                         manualLoggingSection
                         strengthSection
                         appleHealthSection
+                        notificationsSection
                         dataSection
                         accountSection
                     } else {
@@ -406,6 +409,103 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    // MARK: - Notifications
+    //
+    // Local notifications fire from HealthKitService observer paths
+    // on genuinely-new HK inserts (manual logs don't fire). Flipping
+    // a toggle ON requests iOS permission via NotificationService;
+    // on denial we surface a single alert directing the user to iOS
+    // Settings. The toggle stays off until iOS permission is granted.
+
+    private var notificationsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionCaption("Notifications")
+            VStack(spacing: 0) {
+                notificationToggleRow(
+                    label: "New workouts",
+                    isOn: notifyWorkoutBinding
+                )
+                divider
+                notificationToggleRow(
+                    label: "New weigh-ins",
+                    isOn: notifyWeightBinding
+                )
+            }
+            .background(IndexPalette.Surface.card)
+            .clipShape(.rect(cornerRadius: 12))
+            Text("Get notified when Apple Health imports a workout or weigh-in. Manual logs don't trigger notifications.")
+                .font(.caption2)
+                .foregroundStyle(IndexPalette.Text.secondary)
+                .padding(.horizontal, 4)
+        }
+        .alert("Notifications are disabled", isPresented: $showNotificationDeniedAlert) {
+            Button("OK") {}
+        } message: {
+            Text("Enable them under Settings → Notifications → Index.")
+        }
+    }
+
+    private func notificationToggleRow(label: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(IndexPalette.Text.primary)
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .tint(IndexPalette.Module.settings)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    /// Binding that triggers the async permission flow on flip-ON.
+    /// `get` reads the persisted profile flag; `set` kicks off a Task
+    /// that calls `ProfileService.setNotifyOnNewWorkout` — that method
+    /// internally requests iOS permission, throws on denial, and only
+    /// saves the flag if permission is granted. On denial we surface
+    /// the one-time alert and leave the toggle in its previous state.
+    private var notifyWorkoutBinding: Binding<Bool> {
+        Binding(
+            get: { profile?.notifyOnNewWorkout ?? false },
+            set: { isOn in
+                Task {
+                    do {
+                        try await profileService.setNotifyOnNewWorkout(
+                            isOn,
+                            notificationService: notificationService,
+                            in: context
+                        )
+                    } catch NotificationService.PermissionError.denied {
+                        showNotificationDeniedAlert = true
+                    } catch {
+                        saveErrorMessage = "Couldn't update setting. Try again."
+                    }
+                }
+            }
+        )
+    }
+
+    private var notifyWeightBinding: Binding<Bool> {
+        Binding(
+            get: { profile?.notifyOnNewWeight ?? false },
+            set: { isOn in
+                Task {
+                    do {
+                        try await profileService.setNotifyOnNewWeight(
+                            isOn,
+                            notificationService: notificationService,
+                            in: context
+                        )
+                    } catch NotificationService.PermissionError.denied {
+                        showNotificationDeniedAlert = true
+                    } catch {
+                        saveErrorMessage = "Couldn't update setting. Try again."
+                    }
+                }
+            }
+        )
     }
 
     private var workoutToggleBinding: Binding<Bool> {

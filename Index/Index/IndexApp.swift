@@ -69,13 +69,18 @@ struct IndexApp: App {
     let modelContainer: ModelContainer = sharedContainer
 
     @State private var profileService = ProfileService(identity: AppDependencies.identity)
-    @State private var hkService = HealthKitService(modelContainer: sharedContainer)
+    @State private var notificationService = NotificationService.shared
+    @State private var hkService = HealthKitService(
+        modelContainer: sharedContainer,
+        notificationService: NotificationService.shared
+    )
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(profileService)
                 .environment(hkService)
+                .environment(notificationService)
         }
         .modelContainer(modelContainer)
     }
