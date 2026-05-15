@@ -97,7 +97,13 @@ struct ActiveStrengthSessionView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        // Audit H18 — derive once per body. The 1Hz timer drives a
+        // body re-eval every second; without the cache, thisSessionSets
+        // re-walked + re-sorted every set in the current session 3×
+        // per second (used by emptiness check, ForEach, and the alert
+        // message). One call now feeds all three sites.
+        let setsThisSession = thisSessionSets
+        return NavigationStack {
             ZStack {
                 Color(.systemBackground).ignoresSafeArea()
 
@@ -111,7 +117,7 @@ struct ActiveStrengthSessionView: View {
                                 pickPrompt
                             }
                             Divider()
-                            thisSessionSection
+                            thisSessionSection(sets: setsThisSession)
                         }
                         .padding()
                     }
@@ -141,7 +147,7 @@ struct ActiveStrengthSessionView: View {
             Button("Keep going", role: .cancel) {}
             Button("End", role: .destructive) { endSession() }
         } message: {
-            Text(thisSessionSets.isEmpty
+            Text(setsThisSession.isEmpty
                  ? "No sets logged — the session will be discarded."
                  : "Saves the session and adds it to today's workouts.")
         }
@@ -294,22 +300,22 @@ struct ActiveStrengthSessionView: View {
 
     // MARK: - This session
 
-    private var thisSessionSection: some View {
+    private func thisSessionSection(sets: [(performance: ExercisePerformance, set: SetEntry)]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("This session")
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
                 .tracking(0.8)
-            if thisSessionSets.isEmpty {
+            if sets.isEmpty {
                 Text("No sets logged yet.")
                     .font(.caption.monospaced())
                     .foregroundStyle(.tertiary)
                     .tracking(1)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(Array(thisSessionSets.enumerated()), id: \.offset) { idx, item in
+                    ForEach(Array(sets.enumerated()), id: \.offset) { idx, item in
                         sessionSetRow(idx: idx, item: item)
-                        if idx < thisSessionSets.count - 1 {
+                        if idx < sets.count - 1 {
                             Divider().padding(.leading, 12)
                         }
                     }

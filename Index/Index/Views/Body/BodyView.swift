@@ -189,7 +189,12 @@ struct BodyView: View {
     // MARK: - Metrics grid
 
     private var metricsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // Audit H18 — pre-compute text values used twice in the unit
+        // ternaries so the second access doesn't re-walk the
+        // MetricsEngine math + weights/profile lookups.
+        let bodyFat  = bodyFatText
+        let leanMass = leanMassText
+        return VStack(alignment: .leading, spacing: 10) {
             Text("Composition")
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
@@ -201,15 +206,19 @@ struct BodyView: View {
                 tile(label: "BMI", value: bmiText, unit: nil)
                 tile(label: "BMR", value: bmrText, unit: "kcal")
                 tile(label: "TDEE", value: tdeeText, unit: "kcal")
-                tile(label: "Body fat", value: bodyFatText, unit: bodyFatText == "—" ? nil : "%")
-                tile(label: "Lean mass", value: leanMassText, unit: leanMassText == "—" ? nil : "kg")
+                tile(label: "Body fat", value: bodyFat, unit: bodyFat == "—" ? nil : "%")
+                tile(label: "Lean mass", value: leanMass, unit: leanMass == "—" ? nil : "kg")
                 tile(label: "Ideal range", value: idealRangeText, unit: "kg")
             }
         }
     }
 
     private var vitalsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // Audit H18 — pre-compute text values used twice in the unit
+        // ternaries (same pattern as metricsSection above).
+        let hrv = hrvText
+        let rhr = rhrText
+        return VStack(alignment: .leading, spacing: 10) {
             Text("Vitals")
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
@@ -218,9 +227,9 @@ struct BodyView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
                 spacing: 10
             ) {
-                tile(label: "HRV", value: hrvText, unit: hrvText == "—" ? nil : "ms")
+                tile(label: "HRV", value: hrv, unit: hrv == "—" ? nil : "ms")
                 tile(label: "VO2 max", value: vo2Text, unit: nil)
-                tile(label: "Resting HR", value: rhrText, unit: rhrText == "—" ? nil : "bpm")
+                tile(label: "Resting HR", value: rhr, unit: rhr == "—" ? nil : "bpm")
             }
         }
     }

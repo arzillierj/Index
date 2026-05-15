@@ -64,10 +64,15 @@ struct NutritionMainView: View {
     private var profile: Profile? { profileService.activeProfile }
 
     var body: some View {
-        ScrollView {
+        // Audit H18 — derive once per body and thread through the
+        // subsections that need it. Avoids 4× MetricsEngine.dailyTargets
+        // recomputation per render (insight + hero Calories + hero
+        // Protein + workoutCaption all needed it before).
+        let targets = computedTargets
+        return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                insightSection
-                heroRow
+                insightSection(targets: targets)
+                heroRow(targets: targets)
                 macroGrid
                 actionRow
                 frequentChipsSection
@@ -190,11 +195,19 @@ struct NutritionMainView: View {
     }
 
     // MARK: - Brain insight
+    //
+    // Audit H18 — `computedTargets` is read by 4+ subsections per
+    // body (insight, hero Calories, hero Protein, workoutCaption).
+    // Each access reruns MetricsEngine.dailyTargets, which walks the
+    // workouts array, computes BMR/TDEE, and applies the
+    // 14-day-trend buffer. Cache once per body via a body-scoped let
+    // (the caller hoists `let targets = computedTargets` and threads
+    // it through each subsection).
 
     @ViewBuilder
-    private var insightSection: some View {
+    private func insightSection(targets: DailyTargets?) -> some View {
         if let profile,
-           let targets = computedTargets,
+           let targets,
            let insight = BrainService.nutritionInsight(
                 profile: profile,
                 targets: targets,
@@ -234,7 +247,7 @@ struct NutritionMainView: View {
     // doesn't crowd at iPhone SE widths. minimumScaleFactor protects
     // against the worst case if the number ever grows past 4 digits.
 
-    private var heroRow: some View {
+    private func heroRow(targets: DailyTargets?) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Today")
                 .font(.caption.smallCaps())
@@ -244,14 +257,14 @@ struct NutritionMainView: View {
                 heroCell(
                     label: "Calories",
                     consumed: todayKcal,
-                    target: computedTargets?.calories ?? 0,
+                    target: targets?.calories ?? 0,
                     unit: "kcal",
-                    caption: workoutCaption
+                    caption: workoutCaption(targets: targets)
                 )
                 heroCell(
                     label: "Protein",
                     consumed: todayProtein,
-                    target: computedTargets?.protein ?? 0,
+                    target: targets?.protein ?? 0,
                     unit: "g",
                     caption: nil
                 )
@@ -291,8 +304,8 @@ struct NutritionMainView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var workoutCaption: String? {
-        guard let kcal = computedTargets?.workoutCalories, kcal > 0 else { return nil }
+    private func workoutCaption(targets: DailyTargets?) -> String? {
+        guard let kcal = targets?.workoutCalories, kcal > 0 else { return nil }
         return "+\(SafeFormat.int(kcal)) kcal from workouts"
     }
 
