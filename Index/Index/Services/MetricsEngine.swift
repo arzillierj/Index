@@ -112,7 +112,17 @@ enum MetricsEngine {
             }
             return sum + met * weightKg * (Double(w.durationMinutes) / 60.0)
         }
-        let workoutCalories = min(rawWorkoutKcal, 1000)
+        // Gate the workout contribution on the eat-back toggle. When
+        // false (default — cutter-safe), workouts don't lift the daily
+        // calorie target; the deficit stays the deficit. Toggle on for
+        // maintainers / bulkers who want activity-aware targets.
+        let workoutContribution = profile.eatBackWorkoutCalories
+            ? min(rawWorkoutKcal, 1000)
+            : 0
+        // `workoutCalories` on DailyTargets carries the post-gate value
+        // so downstream view sites (caption, insight) only surface the
+        // adjustment when it's actually applied.
+        let workoutCalories = workoutContribution
 
         // Aggressive-loss buffer: 14-day weekly rate > 1%/week → +200 kcal.
         let trendCalories = aggressiveLossBuffer(last14DaysWeight: last14DaysWeight)

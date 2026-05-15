@@ -343,6 +343,10 @@ struct NutritionMainView: View {
     }
 
     private func workoutCaption(targets: DailyTargets?) -> String? {
+        // MetricsEngine zeros workoutCalories when the
+        // eat-back-workout-calories toggle is off, so the > 0 guard
+        // alone is enough to hide the caption when the workout
+        // contribution isn't actually applied.
         guard let kcal = targets?.workoutCalories, kcal > 0 else { return nil }
         return "+\(SafeFormat.int(kcal)) kcal from workouts"
     }

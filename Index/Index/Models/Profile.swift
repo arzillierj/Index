@@ -115,6 +115,15 @@ final class Profile {
     var enabledModulesJSON: String = #"["body","fitness","nutrition"]"#
     var calorieAdjustmentKcal: Double = 0
     var proteinTargetG: Double = 150
+    /// SCHEMA: additive — added so the Goal section can expose an
+    /// "Eat back workout calories" toggle. When false (default),
+    /// MetricsEngine.dailyTargets ignores workout kcal entirely, so
+    /// the daily calorie target stays flat regardless of activity.
+    /// Default false because cutters (the most common careful tracker)
+    /// should NOT eat back workout calories — the deficit IS the point.
+    /// Existing rows automatically pick up false via SwiftData
+    /// lightweight migration.
+    var eatBackWorkoutCalories: Bool = false
     var appleHealthAuthorized: Bool = false
     var onboardingCompleted: Bool = false
     var createdAt: Date = Date.now
@@ -133,6 +142,7 @@ final class Profile {
         enabledModules: Set<Module> = [.body, .fitness, .nutrition],
         calorieAdjustmentKcal: Double = 0,
         proteinTargetG: Double = 150,
+        eatBackWorkoutCalories: Bool = false,
         appleHealthAuthorized: Bool = false,
         onboardingCompleted: Bool = false,
         createdAt: Date = .now
@@ -150,6 +160,7 @@ final class Profile {
         self.enabledModulesJSON = Profile.encodeModules(enabledModules)
         self.calorieAdjustmentKcal = calorieAdjustmentKcal
         self.proteinTargetG = proteinTargetG
+        self.eatBackWorkoutCalories = eatBackWorkoutCalories
         self.appleHealthAuthorized = appleHealthAuthorized
         self.onboardingCompleted = onboardingCompleted
         self.createdAt = createdAt

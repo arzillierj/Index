@@ -157,26 +157,60 @@ struct SettingsView: View {
     // MARK: - Goal
 
     private var goalSection: some View {
-        section(caption: "Goal") {
-            row(label: "Direction", value: profile.map { directionLabel($0.goal) } ?? "—") {
-                activeSheet = .direction
+        VStack(alignment: .leading, spacing: 8) {
+            sectionCaption("Goal")
+            VStack(spacing: 0) {
+                row(label: "Direction", value: profile.map { directionLabel($0.goal) } ?? "—") {
+                    activeSheet = .direction
+                }
+                divider
+                row(
+                    label: "Calorie adjustment",
+                    value: profile.map { calorieAdjustmentLabel($0.calorieAdjustmentKcal) } ?? "—"
+                ) {
+                    activeSheet = .calorieAdjustment
+                }
+                divider
+                row(label: "Protein target", value: profile.map { "\(Int($0.proteinTargetG.rounded())) g/day" } ?? "—") {
+                    activeSheet = .proteinTarget
+                }
+                divider
+                row(label: "Target weight", value: profile.map { targetWeightLabel($0) } ?? "—") {
+                    activeSheet = .targetWeight
+                }
+                divider
+                eatBackToggleRow
             }
-            divider
-            row(
-                label: "Calorie adjustment",
-                value: profile.map { calorieAdjustmentLabel($0.calorieAdjustmentKcal) } ?? "—"
-            ) {
-                activeSheet = .calorieAdjustment
-            }
-            divider
-            row(label: "Protein target", value: profile.map { "\(Int($0.proteinTargetG.rounded())) g/day" } ?? "—") {
-                activeSheet = .proteinTarget
-            }
-            divider
-            row(label: "Target weight", value: profile.map { targetWeightLabel($0) } ?? "—") {
-                activeSheet = .targetWeight
-            }
+            .background(IndexPalette.Surface.card)
+            .clipShape(.rect(cornerRadius: 12))
+            Text("When off, your daily target ignores calories burned during workouts. Recommended for cutting.")
+                .font(.caption2)
+                .foregroundStyle(IndexPalette.Text.secondary)
+                .padding(.horizontal, 4)
         }
+    }
+
+    private var eatBackToggleRow: some View {
+        let bound = Binding<Bool>(
+            get: { profile?.eatBackWorkoutCalories ?? false },
+            set: { isOn in
+                do {
+                    try profileService.setEatBackWorkoutCalories(isOn, in: context)
+                } catch {
+                    saveErrorMessage = "Couldn't update setting. Try again."
+                }
+            }
+        )
+        return HStack {
+            Text("Eat back workout calories")
+                .foregroundStyle(IndexPalette.Text.primary)
+            Spacer()
+            Toggle("", isOn: bound)
+                .labelsHidden()
+                .tint(IndexPalette.Module.settings)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private func directionLabel(_ g: Goal) -> String {

@@ -156,6 +156,10 @@ final class ProfileService {
         try mutate(in: context) { $0.calorieAdjustmentKcal = kcal }
     }
 
+    func setEatBackWorkoutCalories(_ enabled: Bool, in context: ModelContext) throws {
+        try mutate(in: context) { $0.eatBackWorkoutCalories = enabled }
+    }
+
     func updateProteinTarget(_ grams: Double, in context: ModelContext) throws {
         try mutate(in: context) { $0.proteinTargetG = grams }
     }
