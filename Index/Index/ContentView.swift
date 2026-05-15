@@ -53,9 +53,8 @@ struct ContentView: View {
                 UserDefaults.standard.set(false, forKey: IndexApp.storeResetFlagKey)
             }
 
-            if hkService.modelContext == nil {
-                hkService.modelContext = modelContext
-            }
+            // HK side-channel removed (audit H10) — HealthKitService
+            // now holds the ModelContainer it was constructed with.
 
             if profileService.activeProfile != nil {
                 await hkService.bootstrapIfAuthorized()

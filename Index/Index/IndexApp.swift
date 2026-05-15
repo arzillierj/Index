@@ -14,7 +14,11 @@ struct IndexApp: App {
     /// (Audit DQ5: single-shot wipe; no three-strikes retry budget.)
     static let hardErrorFlagKey = "indexHardErrorOnLaunch"
 
-    let modelContainer: ModelContainer = {
+    /// Static shared instance so both the `modelContainer` property
+    /// (passed to `.modelContainer(...)` for SwiftData wiring) and the
+    /// HealthKitService construction (audit H10) reference the same
+    /// container. The closure runs once on first access.
+    private static let sharedContainer: ModelContainer = {
         let schema = Schema(IndexSchema.models)
         // Local SwiftData store. CloudKit is intentionally NOT configured
         // yet — pending paid Developer Program enrollment. When enabled,
@@ -62,8 +66,10 @@ struct IndexApp: App {
         }
     }()
 
+    let modelContainer: ModelContainer = sharedContainer
+
     @State private var profileService = ProfileService(identity: AppDependencies.identity)
-    @State private var hkService = HealthKitService()
+    @State private var hkService = HealthKitService(modelContainer: sharedContainer)
 
     var body: some Scene {
         WindowGroup {

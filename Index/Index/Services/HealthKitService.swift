@@ -3,9 +3,10 @@ import HealthKit
 import SwiftData
 
 /// Observable HealthKit bridge. Reads 14 quantity / category / workout
-/// types from Apple Health and writes bodyMass only. Lifetime: instantiated
-/// once at app launch (BodyView keeps the @State); `modelContext` is set
-/// before any import call.
+/// types from Apple Health and writes bodyMass only. Lifetime:
+/// instantiated once at app launch in IndexApp with the shared
+/// ModelContainer (audit H10 — service mints contexts internally
+/// instead of receiving one via side-channel mutation from a view).
 ///
 /// v0 audit fixes baked in:
 ///   1. Anchor advance is gated on `hk_import_workouts` toggle — samples
@@ -32,10 +33,21 @@ final class HealthKitService {
     var leanMassHistory: [(date: Date, kg: Double)] = []
 
     // MARK: - Ignored injected state
+    //
+    // ModelContainer is passed at construction (audit H10) so the
+    // service can mint a context internally rather than receiving one
+    // via side-channel mutation from a view's `.task`. The internal
+    // accessor uses `mainContext` because every caller is already on
+    // @MainActor (the service is wholesale @MainActor-isolated).
 
-    @ObservationIgnored var modelContext: ModelContext? = nil
+    @ObservationIgnored let modelContainer: ModelContainer
+    @ObservationIgnored private var ctx: ModelContext { modelContainer.mainContext }
     @ObservationIgnored private let store = HKHealthStore()
     @ObservationIgnored private var workoutAnchor: HKQueryAnchor? = nil
+
+    init(modelContainer: ModelContainer) {
+        self.modelContainer = modelContainer
+    }
 
     // MARK: - Capability check
 
@@ -172,8 +184,7 @@ final class HealthKitService {
     /// `latestLeanMass` tuples still take the most-recent reading from
     /// any source (they drive the Body screen's display).
     private func handleNewBodyMass() async {
-        guard let ctx = modelContext,
-              let bmSample = await fetchLatest(.bodyMass) else { return }
+        guard let bmSample = await fetchLatest(.bodyMass) else { return }
         let kg = bmSample.quantity.doubleValue(for: .gramUnit(with: .kilo))
         let date = bmSample.startDate
         let source = detectWeightSource(bmSample)
@@ -284,8 +295,7 @@ final class HealthKitService {
 
     func importWorkouts() async {
         guard Self.isAvailable,
-              UserDefaults.standard.object(forKey: Self.importWorkoutsKey) as? Bool ?? true,
-              let ctx = modelContext else { return }
+              UserDefaults.standard.object(forKey: Self.importWorkoutsKey) as? Bool ?? true else { return }
 
         let cutoff: Date = {
             if let last = UserDefaults.standard.object(forKey: Self.lastWorkoutSyncKey) as? Date {
@@ -313,7 +323,7 @@ final class HealthKitService {
     /// UserDefaults flag in `bootstrap()` so this runs at most once per
     /// device install.
     func importHistoricalWorkouts(since startDate: Date) async {
-        guard Self.isAvailable, let ctx = modelContext else { return }
+        guard Self.isAvailable else { return }
         isBackfilling = true
         defer { isBackfilling = false }
 
@@ -347,10 +357,9 @@ final class HealthKitService {
                     self.workoutAnchor = newAnchor
                     self.saveWorkoutAnchor(newAnchor)
                 }
-                guard let workouts = samples as? [HKWorkout], !workouts.isEmpty,
-                      let ctx = self.modelContext else { return }
+                guard let workouts = samples as? [HKWorkout], !workouts.isEmpty else { return }
                 for workout in workouts {
-                    await self.processHKWorkout(workout, context: ctx)
+                    await self.processHKWorkout(workout, context: self.ctx)
                 }
             }
         }
@@ -523,7 +532,7 @@ final class HealthKitService {
     /// observer needed. Upserts a DailyHealthMetrics row keyed on
     /// today's startOfDay.
     func fetchDailyHealth() async {
-        guard Self.isAvailable, let ctx = modelContext else { return }
+        guard Self.isAvailable else { return }
 
         let hrvSample = await fetchLatest(.heartRateVariabilitySDNN)
         let vo2Sample = await fetchLatest(.vo2Max)
