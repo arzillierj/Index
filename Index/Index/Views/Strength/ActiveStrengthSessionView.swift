@@ -349,9 +349,19 @@ struct ActiveStrengthSessionView: View {
     // MARK: - Setup / lifecycle
 
     private func setupOnAppear() {
+        // Idempotent: if a session was already inserted (e.g. SwiftUI
+        // re-fired .onAppear after a sheet dismiss), don't insert
+        // another. Prevents the audit-flagged regression where a
+        // re-appear leaks an empty StrengthSession row.
+        guard session == nil else { return }
         startedAt = .now
         tickNow = .now
-        let s = StrengthSession(date: startedAt, endDate: startedAt, notes: "")
+        let s = StrengthSession(
+            date: startedAt,
+            endDate: startedAt,
+            notes: "",
+            inProgress: true
+        )
         context.insert(s)
         session = s
         if let seed = seedExercise {
@@ -434,6 +444,7 @@ struct ActiveStrengthSessionView: View {
         guard let s = session else { dismiss(); return }
         if !thisSessionSets.isEmpty {
             s.endDate = .now
+            s.inProgress = false  // Audit H16 — explicit flag flip.
             // Insert parallel WorkoutSession so the Fitness feed,
             // Brain insights, and any cross-module surface pick it up.
             let workout = WorkoutSession(
