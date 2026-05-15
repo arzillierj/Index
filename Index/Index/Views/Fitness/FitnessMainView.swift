@@ -219,7 +219,11 @@ struct FitnessMainView: View {
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
                 .tracking(0.8)
-            HStack(alignment: .top, spacing: 12) {
+            // No card backgrounds on either widget — separation comes
+            // from a 20pt horizontal gap. If side-by-side reads
+            // ungrouped in practice, a vertical hairline Divider can
+            // be inserted between them (IndexPalette.Surface.divider).
+            HStack(alignment: .top, spacing: 20) {
                 RingsWidget(
                     summary: activitySummary,
                     isAuthorized: hkService.isAuthorized,

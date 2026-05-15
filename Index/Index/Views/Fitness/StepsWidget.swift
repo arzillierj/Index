@@ -30,8 +30,8 @@ struct StepsWidget: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(IndexPalette.Surface.card)
-        .clipShape(.rect(cornerRadius: 12))
+        // No card background — renders directly on the page
+        // alabaster, in line with the rings widget's flat treatment.
     }
 
     private var hero: some View {

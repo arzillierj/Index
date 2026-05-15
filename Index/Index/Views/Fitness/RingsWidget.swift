@@ -9,10 +9,16 @@ import UIKit
 /// 1.0) draws a second arc in a brighter shade on top of the base
 /// ring for the partial-loop visual signature.
 ///
-/// Data flows in from FitnessMainView so the parent's
-/// `.refreshable` can refetch and pass the new summary down with one
-/// hop. The widget owns the `displayProgress` triple it animates
-/// toward when the summary changes.
+/// Renders directly on the page background — no card chrome. Tap the
+/// rings to flip the widget to a stats face (Move / Exercise / Stand
+/// current-over-goal rows in their ring colors); tap again to flip
+/// back. The flip is a Y-axis `rotation3DEffect` with synchronized
+/// face opacity so the cross-fade happens at the edge-on midpoint.
+///
+/// Data flows in from FitnessMainView so the parent's `.refreshable`
+/// can refetch and pass the new summary down with one hop. The
+/// widget owns the `displayProgress` triple it animates toward when
+/// the summary changes.
 struct RingsWidget: View {
     let summary: HKActivitySummary?
     /// Caller's overall HK auth state. When false the widget shows
@@ -36,16 +42,12 @@ struct RingsWidget: View {
     @State private var displayMove: Double = 0
     @State private var displayExercise: Double = 0
     @State private var displayStand: Double = 0
+    @State private var showingStats: Bool = false
 
     var body: some View {
-        VStack(spacing: 10) {
+        Group {
             if isAuthorized {
-                ringsStack
-                Text("Move · Exercise · Stand")
-                    .font(.caption)
-                    .foregroundStyle(IndexPalette.Text.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                flippableFaces
             } else {
                 placeholder
             }
@@ -53,27 +55,74 @@ struct RingsWidget: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
         .padding(.horizontal, 10)
-        .background(IndexPalette.Surface.card)
-        .clipShape(.rect(cornerRadius: 12))
+        // No card background — both faces render directly on the
+        // page alabaster. Removing the .background + .clipShape that
+        // used to wrap the content.
         .onAppear { animateIn() }
         .onChange(of: summary) { _, _ in animateIn() }
     }
 
+    // MARK: - Flip container
+    //
+    // ZStack with two faces. The outer rotation3DEffect carries both
+    // faces 180° together; the stats face is internally pre-rotated
+    // 180° so when the outer is at 180° the stats text reads
+    // unmirrored. Face opacity flips with the same animation, so
+    // both are at ~50% at the edge-on midpoint of the flip — fine
+    // because both are nearly invisible at that perspective anyway.
+
+    private var flippableFaces: some View {
+        ZStack {
+            ringsFace
+                .opacity(showingStats ? 0 : 1)
+            statsFace
+                .opacity(showingStats ? 1 : 0)
+                .rotation3DEffect(
+                    .degrees(180),
+                    axis: (x: 0, y: 1, z: 0)
+                )
+        }
+        .rotation3DEffect(
+            .degrees(showingStats ? 180 : 0),
+            axis: (x: 0, y: 1, z: 0),
+            perspective: 0.5
+        )
+        .animation(.easeInOut(duration: 0.3), value: showingStats)
+        .contentShape(Rectangle())
+        .onTapGesture { showingStats.toggle() }
+    }
+
+    // MARK: - Rings face
+
+    private var ringsFace: some View {
+        VStack(spacing: 10) {
+            ringsStack
+            Text("Move · Exercise · Stand")
+                .font(.caption)
+                .foregroundStyle(IndexPalette.Text.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+
     private var ringsStack: some View {
         ZStack {
-            ring(progress: displayMove,     color: Self.moveColor,     diameter: Self.outerDiameter)
-            ring(progress: displayExercise, color: Self.exerciseColor, diameter: Self.middleDiameter)
-            ring(progress: displayStand,    color: Self.standColor,    diameter: Self.innerDiameter)
+            ring(progress: displayMove,     color: Self.moveColor,     diameter: Self.outerDiameter, arrow: .single)
+            ring(progress: displayExercise, color: Self.exerciseColor, diameter: Self.middleDiameter, arrow: .double)
+            ring(progress: displayStand,    color: Self.standColor,    diameter: Self.innerDiameter, arrow: .up)
         }
         .frame(width: Self.outerDiameter, height: Self.outerDiameter)
     }
 
-    /// Single ring = faded background loop + foreground arc(s).
-    /// The base arc trims to `min(progress, 1)`; if progress > 1 a
-    /// second arc draws the overage in a brighter shade on top of the
-    /// base ring (Apple's overachievement signature).
+    /// Single ring = faded background loop + foreground arc(s) + the
+    /// Apple-convention chevron at the 12 o'clock position. The base
+    /// arc trims to `min(progress, 1)`; if progress > 1 a second arc
+    /// draws the overage in a brighter shade on top of the base ring
+    /// (Apple's overachievement signature). The chevron sits ON the
+    /// stroke (Y offset = -radius) and uses the brighter ring color
+    /// for legibility against the saturated arc.
     @ViewBuilder
-    private func ring(progress: Double, color: Color, diameter: CGFloat) -> some View {
+    private func ring(progress: Double, color: Color, diameter: CGFloat, arrow: ArrowGlyph) -> some View {
         ZStack {
             Circle()
                 .stroke(color.opacity(0.18), style: StrokeStyle(lineWidth: Self.ringWidth, lineCap: .round))
@@ -87,16 +136,82 @@ struct RingsWidget: View {
                     .stroke(brighter(color), style: StrokeStyle(lineWidth: Self.ringWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
+            Image(systemName: arrow.systemName)
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(brighter(color))
+                .offset(y: -diameter / 2)
         }
         .frame(width: diameter, height: diameter)
     }
 
+    /// Mirrors Apple's per-ring arrow convention.
+    /// Move (outer)     → single chevron pointing along the clockwise sweep
+    /// Exercise (middle)→ double chevron, same direction
+    /// Stand (inner)    → up chevron, the Fitness app's stand glyph
+    private enum ArrowGlyph {
+        case single, double, up
+
+        var systemName: String {
+            switch self {
+            case .single: "chevron.right"
+            case .double: "chevron.right.2"
+            case .up:     "chevron.up"
+            }
+        }
+    }
+
     /// Mixes the base ring color with white to brighten the
-    /// overachievement loop. SwiftUI doesn't expose a built-in
-    /// "blend with white" so we go through UIColor.
+    /// overachievement loop AND the chevron glyphs. SwiftUI doesn't
+    /// expose a built-in "blend with white" so we go through UIColor.
     private func brighter(_ c: Color) -> Color {
         Color(uiColor: UIColor(c).withAlphaComponent(1).blended(withFraction: 0.35, of: .white))
     }
+
+    // MARK: - Stats face
+
+    private var statsFace: some View {
+        // Reserve the same height as the rings face so the parent
+        // ScrollView doesn't reflow mid-flip. Outer frame matches
+        // ringsStack's diameter plus caption baseline.
+        VStack(spacing: 10) {
+            VStack(spacing: 8) {
+                statRow(
+                    label: "Move",
+                    value: moveValueText,
+                    color: Self.moveColor
+                )
+                statRow(
+                    label: "Exercise",
+                    value: exerciseValueText,
+                    color: Self.exerciseColor
+                )
+                statRow(
+                    label: "Stand",
+                    value: standValueText,
+                    color: Self.standColor
+                )
+            }
+            .frame(width: Self.outerDiameter + 20)
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
+        .frame(width: Self.outerDiameter, height: Self.outerDiameter + 22)
+    }
+
+    private func statRow(label: String, value: String, color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(IndexPalette.Text.primary)
+            Spacer(minLength: 4)
+            Text(value)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+    }
+
+    // MARK: - Placeholder
 
     private var placeholder: some View {
         VStack(spacing: 8) {
@@ -150,13 +265,37 @@ struct RingsWidget: View {
             stand:    standGoal > 0    ? standVal / standGoal       : 0
         )
     }
+
+    // MARK: - Stats-face text (read directly from summary; no animation)
+
+    private var moveValueText: String {
+        guard let s = summary else { return "—" }
+        let value = Int(s.activeEnergyBurned.doubleValue(for: .kilocalorie()).rounded())
+        let goal = Int(s.activeEnergyBurnedGoal.doubleValue(for: .kilocalorie()).rounded())
+        return "\(value) / \(goal) kcal"
+    }
+
+    private var exerciseValueText: String {
+        guard let s = summary else { return "—" }
+        let value = Int(s.appleExerciseTime.doubleValue(for: .minute()).rounded())
+        let goal = Int(s.appleExerciseTimeGoal.doubleValue(for: .minute()).rounded())
+        return "\(value) / \(goal) min"
+    }
+
+    private var standValueText: String {
+        guard let s = summary else { return "—" }
+        let value = Int(s.appleStandHours.doubleValue(for: .count()).rounded())
+        let goal = Int(s.appleStandHoursGoal.doubleValue(for: .count()).rounded())
+        return "\(value) / \(goal) hrs"
+    }
 }
 
 // MARK: - UIColor brighten helper
 
 private extension UIColor {
     /// Linearly mixes self toward the given color by `fraction`
-    /// (0…1). Used by the rings widget's overachievement loop.
+    /// (0…1). Used by the rings widget's overachievement loop and
+    /// the 12 o'clock chevrons.
     func blended(withFraction fraction: CGFloat, of other: UIColor) -> UIColor {
         var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
         var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
