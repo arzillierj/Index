@@ -8,6 +8,7 @@ import SwiftUI
 /// To swap: change the hex string below. That's the only edit needed.
 enum IndexAccent {
     static let primary = Color(hex: "#1E3A8A")
+    static let green   = primary
 }
 
 extension Color {
