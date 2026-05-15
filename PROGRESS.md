@@ -1,16 +1,16 @@
 # Index v2 — Progress
 
-What shipped, what's next, and what the audit surfaced.
+What shipped, what's next, and what the audit produced.
 
 For the product overview see `CONTEXT.md`. For the working agreement see `CLAUDE.md`.
 
 ---
 
-## Status (2026-05-15)
+## Status (2026-05-15, post audit Phase 5)
 
-- **Phases 1–6 complete.** App builds clean. Onboarding works end-to-end. All three modules (Body, Fitness, Nutrition) wired with logging + listing + detail. Apple Watch workout auto-import + historical backfill working. Barcode scanner working against real products via Open Food Facts.
-- **Phase 7 (Settings) not started.**
-- **Audit complete; punch list pending triage.** No critical issues found; ~24 high-priority items, mostly silent-failure paths, dead code, and a handful of additive schema bumps.
+- **Phases 1–6 complete + swim detail + Nutrition main hero refresh.** App builds clean (Debug + Release, zero warnings). All three modules wired end-to-end with logging + listing + detail. Apple Watch workout auto-import + historical backfill working. Barcode scanner with OFF lookup working against real products. Swimming workout detail view ships HR chart + SWOLF tile + Pool Length tile + Auto Sets sheet (per-set summary + per-length breakdown).
+- **Audit Phase 5 complete.** 24 H-tier fixes + 1 DQ-derived schema bump + DQ8 review shipped across 5 rounds — see "Audit Phase 5" section below for the per-round commit table.
+- **Phase 7 (Settings) is next.** Fixes from the audit that were explicitly tied to Phase 7 (HK observer-stop API, Profile editing UI, "Reset all data" affordance) ship together with Settings.
 
 ---
 
@@ -33,7 +33,7 @@ For the product overview see `CONTEXT.md`. For the working agreement see `CLAUDE
 | 6 | MetricsEngine — ported v0 formulas verbatim (BMI, BMR, TDEE, LBM, IBW + daily target reconciliation) |
 | 7 | BrainService — per-module insight sentences |
 | 8 | HealthKitService — reads + bodyMass write + v0 audit fixes (anchor gating, kcalBurned read, max HR capture, RENPHO source detection, distance read perms) |
-| 9 | ClaudeService — photo-to-macros only **(now dead code; photo flow cut from v1)** |
+| 9 | ClaudeService — photo-to-macros only **(deleted in audit H2; photo flow cut from v1)** |
 
 ### Phase 3 — Onboarding
 
@@ -82,115 +82,117 @@ For the product overview see `CONTEXT.md`. For the working agreement see `CLAUDE
 | port | Verbatim port of v0 OFF service + result sheet — replaces broken v2 Codable parser that returned zeros for products with valid macros |
 | 28 | Barcode scanner UI polish — full-word macro labels + g/ml unit toggle |
 
+### Phase 6+ — Swim detail + Nutrition main refresh
+
+| Commit | What |
+|---|---|
+| `9af2eff` | Swimming workout detail — HR chart + Avg SWOLF + Pool Length + Auto Sets sheet (per-set summary groups same-stroke runs; per-length breakdown shows individual 25m laps with stroke + time + SWOLF) |
+| `3d88285` | Nutrition main: Calories + Protein dual hero + behavior-based Frequent foods chip row (top-5 by last-30-day frequency) |
+| `1609989` | Nutrition main hero polish — Calories + Protein floats on page background (cards stripped) |
+
+### Audit Phase 5 — 2026-05-15
+
+5 rounds, 25 commits on `origin/main` between `daca14c` (H2 dead-code delete) and `cbff27c` (H18 derived-metrics hoisting). Build clean (Debug + Release, zero warnings) at every round close. Two device-test gates honored. Headline numbers: 0 critical, 24 high, 1 DQ-derived schema bump, DQ8 reviewed and confirmed already-satisfied.
+
+| Round | Theme | Fixes | Commits |
+|---|---|---|---|
+| 1 | Deletions + config | H1 H2 H3 H19 H20 H23 H24 (+1 follow-up for Date.distantPast qualification) | 8 |
+| 2 | Foundation hardening | H8 H9 H10 H11 H12 (H11 bundled with H8/H9 in `c1a73f7`) | 3 |
+| 3 | Data integrity | H4 H5 H6 H15 H21 (+ hero polish slipped in mid-round) | 6 |
+| 4 | UX + validation | H7 H13 H14 H16 H22 + DQ4 (DQ8 reviewed) | 6 |
+| 5 | Performance | H17 H18 | 2 |
+
+**Per-fix commit map:**
+
+| ID | Title | Commit | Notes |
+|---|---|---|---|
+| H1 | delete PhotoEstimateLog model + remove from schema | `a878ab1` | // SCHEMA: |
+| H2 | delete ClaudeService.swift | `daca14c` | photo flow cut |
+| H3 | deprecate dead fields and stop filtering on them | `6a46658` | photoEstimated, .photo, NutritionEntry.deletedFromIndex, UserExercise.notes |
+| H4 | HealthKitService.saveWeight async throws + banner | `f252e1c` | DQ3 confirmed: keep local on HK reject |
+| H5 | WeightEntry.hkSampleUUID + UUID-first dedup | `ccf2758` | // SCHEMA:, device-test |
+| H6 | ProfileService — explicit save on migration accept/decline | `6507003` | |
+| H7 | AppleSignInIdentityService — non-trapping stubs | `c5cc47c` | |
+| H8 + H9 + H11 | discriminate recovery + non-trapping fallback + bootstrap profile gate | `c1a73f7` | bundled (same `.task` block) |
+| H10 | HealthKitService takes ModelContainer at construction | `b0c10d3` | side-channel removal |
+| H12 | completeOnboarding transactional save | `b0baa1c` | |
+| H13 | onboarding numeric guards + min-1-exercise gate | `47a8663` | DQ6 confirmed |
+| H14 | manual workout input range guards | `c6671d7` | |
+| H15 | BarcodeResultSheet save dedup — explicit error handling | `4920fc2` | |
+| H16 | StrengthSession.inProgress + idempotent setupOnAppear | `73684e9` | // SCHEMA:, device-test |
+| H17 | bound Strength @Query results to last 365 days | `f3092c7` | init-time predicate |
+| H18 | hoist derived metrics inside body evaluations | `cbff27c` | NutritionMainView 4× → 1×, ActiveStrengthSessionView 3× → 1×, BodyView unit ternary precompute |
+| H19 | Profile.encodeModules — symmetric encode-failure fallback | `a7c1bd1` | |
+| H20 | DailyHealthMetrics.date default → .distantPast sentinel | `3601ed5` + `9ce257a` | // SCHEMA: + follow-up to qualify Date.distantPast for the @Model macro |
+| H21 | DevIdentityService Keychain identity persistence | `b7d1f6a` | one-shot UD → Keychain migration in init; iCloud Keychain sync for reinstall survival |
+| H22 | surface BarcodeScannerView setup failures | `f3f7bab` | |
+| H23 | LSApplicationCategoryType (App Store submission) | `59e4c6b` | `public.app-category.healthcare-fitness` |
+| H24 | SWIFT_TREAT_WARNINGS_AS_ERRORS = YES for Release | `5088ede` | |
+| DQ4 | UserExercise.hiddenFromLibrary soft-hide pattern | `0952736` | // SCHEMA:, device-test |
+| DQ8 | WeightEntry.notes display | (no commit) | reviewed — already surfaced by existing `WeightEntryDetailSheet` Notes section |
+
+**Deferred-question answers** (provided 2026-05-15, applied during the rounds):
+
+| DQ | Question | Answer | Applied where |
+|---|---|---|---|
+| DQ1 | MetricsEngine 75 kg fallback | Return Optional<DailyTargets>; suppress brain insights when no real weight | NOT applied yet (medium-priority carry-forward) |
+| DQ2 | NutritionEntry.deletedFromIndex | Deprecate; stop querying. Hard-delete remains the swipe path | H3 |
+| DQ3 | saveWeight failure UX | Keep local entry, non-blocking banner | H4 |
+| DQ4 | UserExercise library delete | Soft-hide via `hiddenFromLibrary` | DQ4 commit `0952736` |
+| DQ5 | Migration recovery retries | Single-shot wipe + hard-error screen, no three-strikes | H8 |
+| DQ6 | Onboarding min-1 exercise | Required when Fitness module enabled | H13 |
+| DQ7 | Profile.calorieAdjustmentKcal / proteinTargetG | Real Phase 7 features — left untouched | (none — Phase 7 work) |
+| DQ8 | WeightEntry.notes | Surfaced in WeightEntryDetailSheet (already was) | (no commit) |
+| DQ9 | Swift 5 → Swift 6 build mode | Defer until after Phase 7 | (deferred) |
+| DQ10 | HK observer stop on toggle-off | Stop importing only; preserve previously-imported rows | Phase 7 carry-forward |
+
 ---
 
-## Phase 7 — Settings (not started)
+## Phase 7 — Settings (next up)
 
-Planned scope, derived from audit-surfaced gaps:
+Planned scope, derived from audit-surfaced gaps + the active spec:
 
-- Workout import on/off toggle (currently UserDefaults-defaulted to ON, no UI)
-- Module enable/disable toggles (currently set during onboarding only)
-- Profile editor (name, age, height, sex, activity, goal — onboarding-only today)
-- Calorie adjustment + protein target editor (currently default 0 / 150)
-- Imperial/metric units (model field exists; no view branches on it)
-- Re-grant Apple Health authorization
-- "Reset all data" affordance (wires into the existing self-healing recovery)
-- Sign out / delete account (will need real bodies once SIWA enrollment lands)
-- Multi-orphan-profile picker (audit DQ7-adjacent)
+- Workout import on/off toggle (currently UserDefaults-defaulted to ON, no UI). Toggle-off calls the new HK observer-stop API.
+- Module enable/disable toggles (currently set during onboarding only).
+- Profile editor (name, age, height, sex, activity, goal — onboarding-only today).
+- Calorie adjustment + protein target editor (currently default 0 / 150).
+- Re-grant Apple Health authorization.
+- "Reset all data" affordance — wipes WeightEntry / WorkoutSession / StrengthSession / NutritionEntry / DailyHealthMetrics / FoodProduct rows; preserves Profile + UserExercise library.
+- Sign out / delete account (will need real bodies once SIWA enrollment lands).
+- About row (version, build date, "Made with care in Switzerland" footer).
 
-Audit fixes that should land **with or before** Phase 7:
-- Observer-stop API on `HealthKitService` so the Settings toggle actually stops new HK delivery
-- HK write failure surfacing to LogWeightSheet (`saveWeight → async throws`)
-- Transactional save in ProfileService migration accept/decline
-- Discriminated catch in IndexApp recovery (don't wipe on disk-full)
-- Replace second-fail `fatalError` with hard-error UI
+Audit-derived items that ship **with** Phase 7:
+- HK observer-stop API on `HealthKitService` (M8 / DQ10).
+- Phase 7 settings expose the existing `Profile.calorieAdjustmentKcal` and `proteinTargetG` editors (DQ7).
 
 ---
 
-## Audit punch list (2026-05-15)
+## Carry-forward (Medium / Low priority — Phase 8 polish window)
 
-Full per-file findings live in the conversation transcript. Headline numbers: 0 critical, ~24 high, ~30 medium, ~13 low. Effort estimate: ~20-25h for High tier, ~10-12h for Medium.
+Audit Medium-tier items that didn't ship in the Phase 5 rounds. Numbered M1–M18 in the original audit; these are the ones still pending:
 
-### High-priority items, grouped
+| M | Item | Notes |
+|---|---|---|
+| M1 | `print` → `os.Logger` (5 sites) | IndexApp:27, HealthKitService:81, BarcodeResultSheet:285/290/350 |
+| M2 | `HealthKitService.saveWeight` is now instance method (paired with H4) | Already shipped in H4 |
+| M3 | `SWIFT_STRICT_CONCURRENCY = complete` explicit setting | |
+| M4 | FitnessMainView sheet sequencing — replace `asyncAfter(0.4)` with `.sheet(onDismiss:)` chain | |
+| M5 | `Profile.hasProteinTarget` companion (additive schema bump) | Allows distinguishing default-150 from user-set-150; ties into Phase 7 Settings |
+| M6 | Log unmapped HKWorkoutActivityType for telemetry-style `print` | |
+| M7 | Combine `fetchAvgHeartRate` + `fetchMaxHeartRate` into one HK round-trip | |
+| M8 | HK observer-stop API | **Now ships with Phase 7** |
+| M9 | WeightEntry input range validation at HK auto-import path | Defense-in-depth against the 5×10³⁸ class of incident at the *write* path |
+| M10 | Hoist formatters (`RelativeDateTimeFormatter`, `DateFormatter`, `UINotificationFeedbackGenerator`) to `static let` | Multi-site |
+| M11 | Centralize `WeightSource.caption` on the enum | Currently triplicated across BodyView, WeightHistoryView, WeightEntryDetailSheet |
+| M12 | Force-unwrapped URL in `OpenFoodFactsService` | `URL(string: ...)!` with throwing `URLComponents` |
+| M13 | `StrengthLibraryView` swipe → confirmation dialog | DQ4 made the action soft-hide so this is less destructive than it was, but still worth a confirm |
+| M14 | Extract magic numbers in `MetricsEngine` (1200 kcal floor, 1.1 BMR safety, 0.01 weekly-rate threshold) | |
+| M15 | `BrainService.mealGapHours` cap fallback at 36 hours | Prevents "168 hours" rendering for empty-week users |
+| M16 | `BrainService.hrvTrendPct` `.isFinite` guards on latest/baseline | |
+| M17 | DQ1 — Optional<DailyTargets> when no weight | Suppress brain insights on day-one (no logged weight, no target) |
+| M18 | Apply same `asyncAfter` cleanup to `NutritionMainView.routeAfterScanner` etc. | Mirrors M4 |
 
-**Dead-code removal (4 items, all S effort)**
-- Delete `Services/ClaudeService.swift` — photo flow cut.
-- Delete `Models/PhotoEstimateLog.swift` + remove from `IndexSchema.models` — phantom on-disk table.
-- Mark `NutritionEntry.photoEstimated`, `NutritionSource.photo`, `NutritionEntry.deletedFromIndex`, `UserExercise.notes` as `// DEPRECATED:`. (Cannot delete per schema rules; deprecate the writers.)
-
-**HK + write-path failure surfacing (4 items)**
-- `HealthKitService.saveWeight` → async throws + banner in LogWeightSheet.
-- `HealthKitService` — bind WeightEntry dedup to HK sample UUID (additive `WeightEntry.hkSampleUUID: String?`).
-- `HealthKitService.enableBackgroundDelivery` — log enrollment failure instead of swallowing.
-- `HealthKitService` — observer-stop API for Phase 7 Settings toggle-off.
-
-**Schema bumps (4 additive items, each must include `// SCHEMA:` marker)**
-- Add `WeightEntry.hkSampleUUID: String?` (with paired dedup change above).
-- Add `StrengthSession.inProgress: Bool = true` (replaces the same-tick `endDate <= date` heuristic).
-- Add `Profile.hasProteinTarget: Bool = false` (so default-150 is distinguishable from user-set-150).
-- Change `DailyHealthMetrics.date` default from `Calendar.current.startOfDay(for: .now)` to `.distantPast` sentinel (latent migration safety).
-
-**ProfileService transactional saves (2 items)**
-- `acceptMigration` / `declineMigration` need explicit `try context.save()` wrapped in do/catch.
-- `ContentView.completeOnboarding` needs the same.
-
-**Identity / IndexApp robustness (3 items)**
-- Replace four `fatalError`s in `AppleSignInIdentityService` with non-trapping stubs (return nil/false/throw soft error).
-- Migrate `DevIdentityService` userId from UserDefaults to Keychain (with one-shot UserDefaults → Keychain copy on first launch under new code).
-- `IndexApp` — discriminate the recovery catch on `SwiftDataError` migration cases; remove the second-fail `fatalError`; gate `hkService.bootstrapIfAuthorized()` on having an active Profile.
-
-**Onboarding numeric guards (1 multi-site item)**
-- Range-validate `heightCm` (100–250), `targetWeightKg` (when `hasTargetWeight`), and require `selectedExerciseIds.count >= 1` when Fitness is enabled.
-
-**Manual workout input guards (2 items)**
-- `LogCyclingSheet` and `LogOtherWorkoutSheet` — bound duration (1–1440 min) and distance (0–300 km) via `FieldValidation`.
-
-**Performance / caching (3 items)**
-- Cache derived metrics in `BodyView`, `FitnessMainView`, `NutritionMainView`, `ActiveStrengthSessionView` so MetricsEngine + BrainService don't run per `body` render.
-- Bound `ActiveStrengthSessionView` and `ExerciseDetailView` `@Query<StrengthSession>` predicates to a sane time horizon.
-- Hoist per-call formatters (RelativeDateTimeFormatter, DateFormatter, UINotificationFeedbackGenerator) to static lets.
-
-**Eliminate side-channel mutation (1 item)**
-- `HealthKitService.modelContext` — pass `ModelContainer` at construction instead of mutating from `ContentView.task`.
-
-**Misc HIGH (3 items)**
-- `BarcodeResultSheet` save dedup → replace `try?` with explicit error handling.
-- `BarcodeScannerView` setup failures → surface to SwiftUI parent instead of silent black screen.
-- `Profile.encodeModules` failure fallback → return the full default-set JSON, not `"[]"` (encode/decode symmetric).
-
-**Project config (2 items)**
-- Add `INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness"` (App Store submission requirement).
-- `SWIFT_TREAT_WARNINGS_AS_ERRORS = YES` for Release.
-
-### Medium-priority items (samples)
-
-- Centralize `print` → `os.Logger` (5 sites).
-- Sheet sequencing without `asyncAfter(0.4)` magic (FitnessMainView + NutritionMainView).
-- Combine `fetchAvgHeartRate` + `fetchMaxHeartRate` into one HK round-trip.
-- WeightEntry input range validation at the HK auto-import path (defense against the 5×10³⁸ class of incident at the *write* path, not just display).
-- Centralize `WeightSource.caption` (currently triplicated across BodyView, WeightHistoryView, WeightEntryDetailSheet).
-- `URL(string: ...)!` force-unwrap removal in OpenFoodFactsService (and ClaudeService if not deleted).
-- `StrengthLibraryView` swipe → confirmation dialog.
-- Extract magic numbers in `MetricsEngine` (1200 kcal floor, 1.1 BMR safety, 0.01 weekly-rate threshold).
-- `BrainService.mealGapHours` cap fallback at 36 hours so an empty week doesn't render "168 hours".
-- `BrainService.hrvTrendPct` add `.isFinite` guards.
-- `setupOnAppear` in `ActiveStrengthSessionView` — gate on `session == nil` to be re-appear-safe.
-- Explicit `SWIFT_STRICT_CONCURRENCY = complete` build setting.
-
-### Deferred questions (need product-level decisions)
-
-The audit surfaced 10 items where current behavior could be intentional. Listed here so they can be answered before fixes proceed:
-
-1. **MetricsEngine 75 kg fallback** — when no weight history AND no target, every body-math call falls back to 75 kg. Intentional ballpark or should the brain insight suppress until real data exists?
-2. **NutritionEntry.deletedFromIndex** — field exists but the swipe path uses hard-delete. Was a future "show deleted" surface planned, or just deprecate?
-3. **HealthKitService.saveWeight failure UX** — banner-and-keep-local, or roll back the SwiftData insert if HK rejects?
-4. **StrengthLibraryView delete cascade** — keep "history shows 'Unknown exercise'" or soft-hide-from-library and preserve the row?
-5. **IndexApp second-fail recovery** — show error UI once, or build a small retry budget?
-6. **Onboarding step 7 minimum-1-exercise validation** when Fitness is on — block or allow?
-7. **`Profile.calorieAdjustmentKcal` and `proteinTargetG`** — Phase 7 Settings exposure planned, or vestigial?
-8. **`WeightEntry.notes`** — write-only display-wise; surface or deprecate?
-9. **Swift 5.0 → Swift 6.0 build-mode bump** — now or after Phase 7?
-10. **HK observer toggle-off** — also delete previously-imported HK rows, or just stop new imports?
+Low-priority cosmetic items (icon-only button accessibility labels, fixed-size hero font Dynamic Type scaling, etc.) are tracked in the audit transcript and will be addressed during the design pass.
 
 ---
 
@@ -198,10 +200,13 @@ The audit surfaced 10 items where current behavior could be intentional. Listed 
 
 From the v0 carryover + audit notes:
 
-- **Photo-to-macros (revived)** — Claude Haiku / future model + UserDefaults → Keychain for the API key. Photo audit log model (`PhotoEstimateLog`) currently dead; would need to come back if the feature is revived.
+- **Photo-to-macros (revived)** — re-add `Services/ClaudeService.swift` + `Models/PhotoEstimateLog.swift` as additive changes when the feature lands. UserDefaults → Keychain for the API key (audit precedent: H21).
 - **Cycling route view** — `WorkoutDetailView` cycling section has a placeholder "coming in a later release" tile.
 - **HR series + Tanaka zone breakdown on WorkoutDetailView** — v0 pattern was lazy-fetch from HK; v2 design is to persist with the WorkoutSession (schema bump).
 - **Imperial display units** — `MetricsEngine.kgToLbs` etc. exist but no view branches on `Profile.units`.
-- **Custom launch screen + app icon design pass.**
+- **Swift 5 → Swift 6 build mode bump** (DQ9) — defer until after Phase 7.
 - **Multi-orphan profile picker** in Settings (today only the count==1 case auto-stages a migration prompt).
+- **Sign in with Apple** swap (`AppleSignInIdentityService` non-trapping stubs already in place per H7) — fill the four method bodies post paid Developer Program enrollment, flip `AppDependencies.identity`.
+- **CloudKit private database** — single `ModelConfiguration` change (add `cloudKitDatabase: .private(...)`) post enrollment.
+- **Custom launch screen + app icon design pass** — current icon shipped (`I.` wordmark with green accent dot, commit `c846d97`); custom launch screen is auto-generated.
 - **Sleep tile** on Body (cut from top-level tab; tile is open).

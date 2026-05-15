@@ -32,7 +32,7 @@ Index/
 │       ├── ContentView.swift                       — root router (orphan / active profile / onboarding)
 │       ├── Index.entitlements                      — HealthKit + background delivery
 │       ├── Assets.xcassets/
-│       ├── Models/                                 — 11 @Model classes + IndexSchema list
+│       ├── Models/                                 — 10 @Model classes + IndexSchema list
 │       ├── Services/                               — HK bridge, Profile, Identity, Brain, Metrics, OFF, Format helpers
 │       └── Views/
 │           ├── Body/                               — BodyView + log / detail / history sheets
@@ -52,11 +52,11 @@ Xcode is configured with `PBXFileSystemSynchronizedRootGroup` — new `.swift` f
 | HealthKit | ✅ entitlement + usage strings present | full read of 14 types + `bodyMass` write per the v0 pattern |
 | HealthKit background delivery | ✅ entitlement present | `com.apple.developer.healthkit.background-delivery` |
 | Camera (barcode) | ✅ wired Phase 6 | `INFOPLIST_KEY_NSCameraUsageDescription` set; AVFoundation scanner ships EAN-8/13, UPC-A/E, ITF-14, Code 128 |
-| Sign in with Apple | ⏳ pending paid enrollment | JWT signing requires paid Developer Program; do NOT add `com.apple.developer.applesignin` until enrollment completes. `AppleSignInIdentityService` stub exists — fill bodies and flip `AppDependencies.identity` as the swap |
+| Sign in with Apple | ⏳ pending paid enrollment | JWT signing requires paid Developer Program; do NOT add `com.apple.developer.applesignin` until enrollment completes. `AppleSignInIdentityService` stub exists with **non-trapping** stubs (audit H7) — fill bodies and flip `AppDependencies.identity` as the swap |
 | iCloud / CloudKit | ⏳ pending paid enrollment | models are CloudKit-shape compliant (re-verified by audit); flipping the capability is a single `ModelConfiguration` change to add `cloudKitDatabase: .private(...)` |
-| `LSApplicationCategoryType` | ⏳ pre-submission | not set yet; required for App Store submission |
+| `LSApplicationCategoryType` | ✅ set 2026-05-15 | `INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness"` for App Store submission |
 
-Until paid enrollment lands, use `DevIdentityService` (UUID in UserDefaults) instead of real Sign in with Apple. The `IdentityService` protocol lets the rest of the app stay identical when we swap.
+Until paid enrollment lands, use `DevIdentityService` — UUID stored in **Keychain** (audit H21) with `kSecAttrAccessibleAfterFirstUnlock` + `kSecAttrSynchronizable` so identity persists across uninstall + reinstall when the user has iCloud Keychain on. The `IdentityService` protocol lets the rest of the app stay identical when we swap to real Sign in with Apple.
 
 ## CloudKit-shape rules — non-negotiable
 
@@ -73,18 +73,24 @@ If a new model can't satisfy these, the problem is the model design, not the rul
 ## Patterns to keep using
 
 - **`has-foo` boolean companion** for every nullable numeric (`hasKcal`, `hasMaxHeartRate`, `hasLeanMass`). Never Swift-optional numerics; the Bool companion queries cleanly through SwiftData `#Predicate`.
-- **`deletedFromIndex` soft-delete** on every model that mirrors HealthKit data. Filter `@Query` results with `#Predicate { !$0.deletedFromIndex }`. HK dedup predicates **do NOT** filter on this flag — that's what makes swipe-delete-as-tombstone work. The flag is meaningless on non-mirrored models (e.g. NutritionEntry never touches HK; the swipe there is hard-delete).
+- **`deletedFromIndex` soft-delete** on every model that mirrors HealthKit data. Filter `@Query` results with `#Predicate { !$0.deletedFromIndex }`. HK dedup predicates **do NOT** filter on this flag — that's what makes swipe-delete-as-tombstone work. The flag is meaningless on non-mirrored models (e.g. NutritionEntry never touches HK; the swipe there is hard-delete; the field there is `// DEPRECATED:` per audit H3).
 - **Soft-link by string id** for cross-model references that must survive a deliberate hard-delete on the linked side: `WorkoutSession.strengthSessionId` → `StrengthSession.id`, `ExercisePerformance.userExerciseId` → `UserExercise.id`. Read sites must guard for the dangling case (render "Unknown exercise" or similar).
-- **Apple Health is the source of truth.** Index writes only `bodyMass` (manual weight mirrors out). Read-mostly, write-rarely. The HK boundary is one file (`HealthKitService.swift`); HK types do NOT leak past it.
+- **Soft-hide for catalog-keyed library items.** When a UserExercise (id == catalog id) is "removed" by the user, set `hiddenFromLibrary = true` rather than deleting. Library/picker `@Query` filters on `!hiddenFromLibrary`; old session history's `userExerciseId` soft-link still resolves the name. Re-adding the same catalog id from `AddExerciseSheet` un-hides the row instead of inserting a duplicate (catalog ids are deterministic; duplicate inserts would break soft-link resolution). Pattern from audit DQ4.
+- **UUID-first dedup for HK-mirrored writes.** Two-tier dedup, in order:
+  1. Primary — `hk*UUID` field on the SwiftData model matches the HK sample's `uuid.uuidString`. Used by `WorkoutSession.hkWorkoutUUID` (audit baseline) and `WeightEntry.hkSampleUUID` (audit H5).
+  2. Fallback — ±N-min date window for manual rows (no HK UUID) and pre-UUID-field legacy rows. ±2 min for workouts, ±5 min for weight entries.
+  
+  Neither tier filters on `deletedFromIndex` — that's still the swipe-as-tombstone contract that prevents resurrection.
+- **Apple Health is the source of truth.** Index writes only `bodyMass` (manual weight mirrors out, surfaced as `async throws` so failures bubble up — audit H4). Read-mostly, write-rarely. The HK boundary is one file (`HealthKitService.swift`); HK types do NOT leak past it.
 - **Anchor gating on HK observer.** When the import toggle is off, do NOT advance the HK anchor — otherwise workouts delivered during the off-window are stranded forever.
-- **±5-minute match window** for reconciling Apple Watch workouts with manual logs. Primary HK dedup key is `hkWorkoutUUID`; ±2-min date window is the secondary fallback.
+- **Explicit boolean over date-equality heuristic** for in-progress / completed state. `StrengthSession.inProgress` (audit H16) replaces the previous `endDate <= date` check, which lied about state in the same-tick edge case (create + immediate-end on a fast CPU returned `true` after end).
 - **Pure-static services for math** (`MetricsEngine`, `BrainService`). No state, no fetching — callers pass `@Query` data in.
 - **`@Query` directly in views.** No ViewModels.
 - **Sheet draft pattern.** `@State` text fields buffer the *display* of a model's values; explicit `model.field = parsed` on Save commits. Cancel rolls back implicitly because nothing was mutated. Used by every Log* and *DetailSheet.
-- **`FieldValidation` value type** (in `Views/Body/LogWeightSheet.swift`) for any numeric form input — three-state (parsed / parsedInRange / error). Reused by 5+ sheets. Comma-as-decimal locale handled.
+- **`FieldValidation` value type** (in `Views/Body/LogWeightSheet.swift`) for any numeric form input — three-state (parsed / parsedInRange / error). Reused by 7+ sheets after audit H13/H14. Comma-as-decimal locale handled.
 - **`SafeFormat` defensive formatters** for any `Int(Double)` display path. Returns `"—"` for non-finite or magnitude > threshold. Floor against the 2026-05-14 incident (a `WeightEntry.weightKg` ~5×10³⁸ trapped BodyView's formatter on launch).
 - **Profile abstraction from day one.** There is no hard-coded "Yannis." Every screen reads the active profile via `ProfileService`.
-- **Identity behind a protocol.** `IdentityService` swap-seam in `AppDependencies.identity` is the only line that changes when paid enrollment lands.
+- **Identity behind a protocol.** `IdentityService` swap-seam in `AppDependencies.identity` is the only line that changes when paid enrollment lands. `DevIdentityService` stores in Keychain (audit H21); `AppleSignInIdentityService` stubs are non-trapping (audit H7) so a partial swap doesn't crash.
 - **Migrations are lightweight-only.** See "Schema evolution rules" below — if a change can't be made via lightweight migration, redesign the change.
 
 ## Schema evolution rules
@@ -100,9 +106,9 @@ These rules are non-negotiable. Violating them invalidates every prior schema ev
 - **Every new field must have a default value or be Swift-optional.** Required for SwiftData's lightweight migration to populate stored rows automatically. Already a CloudKit-shape requirement.
 - **No VersionedSchema declarations for additive changes.** SwiftData lightweight migration handles them automatically when you give the ModelContainer a single `Schema(IndexSchema.models)`.
 - **If a non-additive change is ever needed**, that's the moment to introduce proper VersionedSchema snapshots with nested `@Model` types per version. Don't reach for them prophylactically.
-- **Every schema change requires a clean build + device test before committing.** Not simulator-only. The "Duplicate version checksums" incident reproduced on device but not on a fresh simulator install — schema evolution has to be verified against an existing store.
+- **Every schema change requires a clean build + device test before committing.** Not simulator-only. The "Duplicate version checksums" incident reproduced on device but not on a fresh simulator install — schema evolution has to be verified against an existing store. Audit H5 / H16 / DQ4 (and any future schema bump) follow this gate.
 - **Every schema change commit must include a `// SCHEMA:` marker line in the message body** so the schema-related commits are findable via `git log --grep`.
-- **The ModelContainer init in `IndexApp` is wrapped in do/catch.** On any migration failure the SwiftData store files are wiped and ContentView surfaces a one-time "Local data was reset" alert. Self-healing recovery — but its existence is not a license to ship risky schema changes.
+- **The ModelContainer init in `IndexApp` is wrapped in a discriminated do/catch** (audit H8 + H9). Only `SwiftDataError.loadIssueModelContainer` triggers wipe + retry; any other error (disk full, file-permission, unknown future error type) falls through to a non-trapping in-memory fallback so the user reaches `ContentView`'s hard-error screen instead of crashing. Single-shot wipe — no three-strikes retry. Self-healing where it makes sense; honest failure where it doesn't.
 
 ## Commit conventions
 
@@ -139,36 +145,55 @@ Do not implement these. They were considered and cut.
 - Structured cycling workout templates (HIIT Sprints, Tempo, Recovery)
 - Strength workout templates (no Push Day / Pull Day; freestyle only)
 - Custom exercise creation (the 10-exercise starter catalog is the whole catalog)
-- Frequently-eaten chips on Nutrition main
 - Metric explanation overlays (long-press to explain BMI etc.)
 - Notification system (zero notifications in v1)
 - Dashboard tab / "Today's Read" prose
 - WorkoutDetailData lazy-fetch (v2 persists HR series + zone breakdown to SwiftData)
+- **Photo-to-macros.** `Services/ClaudeService.swift` and `Models/PhotoEstimateLog.swift` were deleted in audit H1 + H2 (2026-05-15). `NutritionEntry.photoEstimated` and `NutritionSource.photo` remain in the model marked `// DEPRECATED:` per the schema rules ("Never delete a field"). Reviving the feature post-v1 means re-adding the service + model as additive changes, not un-deprecating the existing slots.
+
+(Frequent foods on Nutrition main is now shipped as a behavior-based chip row built from last-30-day NutritionEntry frequency — see commit `3d88285`.)
 
 ## Audit-derived defensive coding rules
 
-Added 2026-05-15 after the line-by-line audit. These are non-negotiable patterns going forward; existing violations are tracked in `PROGRESS.md`.
+Added 2026-05-15 after the line-by-line audit, then enforced through audit Phase 5 (24 H-tier fixes + DQ4 / DQ8 — all on `origin/main` between commits `daca14c` and `cbff27c`). These are non-negotiable patterns going forward.
 
-- **No silent error swallowing on write paths.** `try?` is acceptable for *reads* where an empty result is the right fallback (the SwiftData `FetchDescriptor` calls in `HealthKitService` and `ProfileService` qualify). It is NOT acceptable for writes — `context.save()`, HK `store.save(_:)`, file removal during recovery — those need a real `do/catch` with a user-visible failure mode or an explicit log.
+- **No silent error swallowing on write paths.** `try?` is acceptable for *reads* where an empty result is the right fallback (the SwiftData `FetchDescriptor` calls in `HealthKitService` and `ProfileService` qualify). It is NOT acceptable for writes — `context.save()`, HK `store.save(_:)`, file removal during recovery — those need a real `do/catch` with a user-visible failure mode or an explicit log. Audit references: H4 (HK saveWeight), H6 (ProfileService migration), H12 (onboarding completion), H15 (BarcodeResultSheet dedup).
 - **Insert + save is one operation.** Any path that inserts a model and depends on the data being durable across an app kill must explicitly call `try modelContext.save()` and handle the throw. SwiftData autosave is "next runloop tick when dirty" — fine for incidental edits, not safe for onboarding completion or migration accept/decline.
-- **No `fatalError` reachable in production.** The two existing exceptions are documented (`init?(coder:)` boilerplate in BarcodeScannerView; the `AppleSignInIdentityService` stubs that are gated behind `AppDependencies.identity = DevIdentityService()`). Any new `fatalError` needs a written justification or it gets rejected.
-- **HK observers must be stoppable.** Every new `HKObserverQuery` / `HKAnchoredObjectQuery` needs to be retained on the service so a future Settings toggle-off can call `store.stop(query:)`. (Not yet implemented for the existing two observers — Phase 7 fix.)
-- **Pre-emptive numeric range guards on form inputs.** Any `TextField` that binds to a `Double`/`Int` used by `MetricsEngine` or persisted to a model needs a `FieldValidation` range check before save. `0` is rarely a valid input for height, target weight, or duration; accept-and-coerce-to-0 silently corrupts downstream math.
-- **Cache derived metrics inside `body`, don't recompute per render.** Brain insights and `MetricsEngine.dailyTargets` are pure but not cheap. Compute once in a `private var derived: …` and reuse across the view; avoid four computed-property call sites that each redo the work.
-- **Bound `@Query` results when the underlying table grows unbounded.** StrengthSession history accumulates forever; an unbounded `@Query` transitively pulls every `SetEntry` ever logged. Add a `#Predicate { $0.date > cutoff }` based on the screen's actual time horizon.
-- **Don't use `print(...)`.** Use `os.Logger`. Existing `print` sites are a known cleanup item.
+- **No `fatalError` reachable in production.** Three documented exceptions remain: `init?(coder:)` boilerplate in `BarcodeScannerView` (unreachable in SwiftUI presentation); the `IndexApp.makeFallbackContainer` last-resort trap (only fires if even an in-memory schema init fails — fundamentally broken Schema, nothing to fall back to); the `AppleSignInIdentityService` stubs are now non-trapping (audit H7). Any new `fatalError` needs a written justification.
+- **HK observers must be stoppable.** Every new `HKObserverQuery` / `HKAnchoredObjectQuery` needs to be retained on the service so a future Settings toggle-off can call `store.stop(query:)`. **Still pending — Phase 7 ships the toggle UI together with the stop API.** Per DQ10: stopping HK delivery does NOT delete previously-imported HK rows.
+- **Pre-emptive numeric range guards on form inputs.** Any `TextField` that binds to a `Double`/`Int` used by `MetricsEngine` or persisted to a model needs a `FieldValidation` range check before save. `0` is rarely a valid input for height, target weight, or duration; accept-and-coerce-to-0 silently corrupts downstream math. See audit H13 (onboarding) and H14 (manual workout sheets) for the pattern in use.
+- **Cache derived metrics inside `body`, don't recompute per render.** Brain insights and `MetricsEngine.dailyTargets` are pure but not cheap. Compute once in a body-scoped `let derived = makeDerived()` at the top of the view's `body` and thread through the subsections that need it; avoid 4× duplicated work across computed-property accessor calls. The `NutritionMainView.heroRow(targets:)` / `insightSection(targets:)` / `workoutCaption(targets:)` parameter pattern (audit H18) is the canonical example.
+- **Bound `@Query` results when the underlying table grows unbounded.** StrengthSession history accumulates forever; an unbounded `@Query` transitively pulls every `SetEntry` ever logged. Construct the `@Query` in a view's `init(...)` with a date-cutoff predicate so the cutoff refreshes per presentation. See `ActiveStrengthSessionView.init` and `ExerciseDetailView.init` for the pattern (audit H17 — both bound to last 365 days).
+- **Don't use `print(...)`.** Use `os.Logger`. Existing `print` sites are a known cleanup item (Phase 8 polish).
 - **No `URL(string: ...)!` for network endpoints.** Any string-built URL goes through `URLComponents` or a `guard let url else { throw }` — the force-unwrap survives a refactor that *does* introduce a parsing failure mode.
-- **Side-channel mutation of services from views is forbidden.** Services receive their dependencies (ModelContainer, Identity provider) at construction in `IndexApp`. The current `HealthKitService.modelContext = …` set from `ContentView.task` is the one violation we know about and is slated to be fixed before Phase 7.
+- **Side-channel mutation of services from views is forbidden.** Services receive their dependencies (`ModelContainer`, identity provider) at construction in `IndexApp`. `HealthKitService` was the one historical violation (`modelContext` set from `ContentView.task`); fixed in audit H10 — service now takes `ModelContainer` at construction via the `IndexApp.sharedContainer` static. Same pattern for any future service.
 
 ## Pattern recommendations going forward
 
 Direct outcomes of the audit findings — adopt these for new work:
 
-- **Sheet sequencing without `asyncAfter` magic.** When one sheet's dismiss must trigger another's presentation, use `.sheet(isPresented:onDismiss:)` chained — NOT `DispatchQueue.main.asyncAfter(deadline: .now() + 0.4)`. The 0.4s constant is brittle on slower devices and breaks if iOS animation curves change.
-- **Centralize `WeightSource.caption` (and similar) on the enum**, not as a duplicated helper inside three separate view files. New display-string mappings on enums go on the enum.
+- **Sheet sequencing without `asyncAfter` magic.** When one sheet's dismiss must trigger another's presentation, use `.sheet(isPresented:onDismiss:)` chained — NOT `DispatchQueue.main.asyncAfter(deadline: .now() + 0.4)`. The 0.4s constant is brittle on slower devices and breaks if iOS animation curves change. (Existing offenders in `FitnessMainView.handleActivityChoice` and `NutritionMainView.routeAfterScanner` are Phase 8 polish.)
+- **Centralize `WeightSource.caption` (and similar) on the enum**, not as a duplicated helper inside three separate view files. New display-string mappings on enums go on the enum. (Phase 8 polish for the existing triplication.)
 - **Hoist formatter instances to `static let`.** `RelativeDateTimeFormatter`, `DateFormatter`, `UINotificationFeedbackGenerator` — instantiating per call wastes cycles and isn't measurably more readable.
-- **Don't trust `UserDefaults` to survive uninstall.** Anything identity-bearing (userId, API keys if ever needed) goes in Keychain. UserDefaults is for operational state (sync anchors, toggles, one-shot flags).
-- **Discriminate catch blocks on error type** when "wipe and retry" is the recovery. `IndexApp`'s migration recovery currently treats *any* ModelContainer init error as "schema problem, wipe the store." Disk-full and file-permission errors should not wipe user data — pattern-match on `SwiftDataError` migration cases specifically.
+- **Don't trust `UserDefaults` to survive uninstall.** Anything identity-bearing (userId, API keys if ever needed) goes in Keychain. UserDefaults is for operational state (sync anchors, toggles, one-shot flags). The audit migrated `DevIdentityService` to Keychain (H21) including a one-shot UD → Keychain copy in `init` for existing installs.
+- **Discriminate catch blocks on error type** when "wipe and retry" is the recovery. `IndexApp`'s migration recovery now pattern-matches on `SwiftDataError.loadIssueModelContainer` specifically (audit H9); other errors route to the non-trapping in-memory fallback so user data isn't wiped on a transient I/O issue.
+
+---
+
+## Audit Phase 5 milestone — 2026-05-15
+
+Foundation hardening shipped. 24 H-tier fixes + 1 DQ-derived schema bump landed across 5 rounds, all on `origin/main` between commits `daca14c` and `cbff27c`. Headline outcomes:
+
+- **Dead code gone:** `Services/ClaudeService.swift` + `Models/PhotoEstimateLog.swift` deleted; four dead fields marked `// DEPRECATED:` (`NutritionEntry.photoEstimated`, `NutritionSource.photo`, `NutritionEntry.deletedFromIndex`, `UserExercise.notes`).
+- **Three additive schema bumps shipped (// SCHEMA:):** `WeightEntry.hkSampleUUID` (H5), `StrengthSession.inProgress` (H16), `UserExercise.hiddenFromLibrary` (DQ4). Plus `DailyHealthMetrics.date` default → `Date.distantPast` sentinel (H20).
+- **Identity moved to Keychain** (H21) with iCloud Keychain sync for reinstall survival; `AppleSignIn` stubs no longer trap (H7).
+- **`IndexApp` recovery rebuilt** with discriminated catch + non-trapping fallback + ContentView hard-error screen (H8 + H9 + H11 + H12).
+- **HK boundary tightened**: constructor injection of `ModelContainer` (H10), UUID-first dedup on weight imports (H5), `saveWeight → async throws` with non-blocking failure banner (H4).
+- **UX guards added** in onboarding (H13 — DQ6 min-1 exercise) and manual workout sheets (H14).
+- **Performance**: bounded Strength `@Query` (H17), hoisted derived-metrics in main views (H18).
+- **Project config**: `LSApplicationCategoryType` set (H23); `SWIFT_TREAT_WARNINGS_AS_ERRORS = YES` for Release (H24).
+
+Build clean (Debug + Release, zero warnings) at the close of every round. Two device-test gates honored (Round 3 H5 + H21; Round 4 H16 + DQ4). See `PROGRESS.md` for the per-round commit table + the carry-forward list of Medium / Low items deferred to Phase 8 polish.
 
 ## When to ask Yannis vs. decide
 
