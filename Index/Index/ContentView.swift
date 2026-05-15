@@ -214,6 +214,19 @@ struct ContentView: View {
             }
         }
 
+        // Audit H12 — transactional save. SwiftData autosave is
+        // "next runloop tick when dirty"; an app kill between this
+        // call and the autosave would lose the entire onboarding
+        // result. Explicit save closes that window. On failure we
+        // log + continue so the user isn't trapped in a save loop;
+        // they'd see the OnboardingView again on next launch and
+        // the inserts would re-run.
+        do {
+            try modelContext.save()
+        } catch {
+            print("[ContentView] onboarding save failed: \(error)")
+        }
+
         profileService.refresh(in: modelContext)
     }
 }
