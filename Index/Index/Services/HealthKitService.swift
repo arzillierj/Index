@@ -95,6 +95,12 @@ final class HealthKitService {
             HKQuantityType(.distanceWalkingRunning),
             HKQuantityType(.distanceSwimming),
             HKQuantityType(.cyclingPower),
+            // Today widgets on FitnessMainView. ActivitySummary is a
+            // composite type covering Move / Exercise / Stand rings;
+            // stepCount drives the second widget. Existing installs
+            // re-prompt once via `didRequestActivityTypesKey`.
+            HKObjectType.activitySummaryType(),
+            HKQuantityType(.stepCount),
         ]
         return types
     }
@@ -138,6 +144,20 @@ final class HealthKitService {
     /// armed and the corresponding `store.enableBackgroundDelivery`
     /// is also skipped.
     private func bootstrap() async {
+        // One-time re-prompt for the activity-summary + stepCount
+        // read types added after the initial release. iOS records
+        // per-type decisions so previously-granted types stay silent;
+        // only the newly-added pair surfaces a prompt. The UD flag
+        // makes this idempotent across launches.
+        if !UserDefaults.standard.bool(forKey: Self.didRequestActivityTypesKey) {
+            do {
+                try await store.requestAuthorization(toShare: writeTypes, read: readTypes)
+            } catch {
+                print("[HealthKitService] re-request for activity types failed: \(error)")
+            }
+            UserDefaults.standard.set(true, forKey: Self.didRequestActivityTypesKey)
+        }
+
         await fetchAll()
         await fetchDailyHealth()
 
@@ -728,6 +748,66 @@ final class HealthKitService {
         if let r = rhr   { row.restingHeartRate = r; row.hasRestingHeartRate = true }
     }
 
+    // MARK: - Today widgets (rings + steps)
+
+    /// Today's activity summary — Move (active kcal), Exercise (mins),
+    /// Stand (hours), each with its current value + the user's
+    /// configured goal. Apple writes one HKActivitySummary per day,
+    /// keyed by the start-of-day components. Returns nil if HK isn't
+    /// authorized or if the user has no Apple Watch paired (no summary
+    /// is written without a Watch).
+    func fetchTodayActivitySummary() async -> HKActivitySummary? {
+        guard Self.isAvailable else { return nil }
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: .now)
+        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
+        var startComps = cal.dateComponents(
+            [.year, .month, .day, .era],
+            from: start
+        )
+        startComps.calendar = cal
+        var endComps = cal.dateComponents(
+            [.year, .month, .day, .era],
+            from: end
+        )
+        endComps.calendar = cal
+        let pred = HKQuery.predicate(forActivitySummariesBetweenStart: startComps, end: endComps)
+        return await withCheckedContinuation { cont in
+            let q = HKActivitySummaryQuery(predicate: pred) { _, summaries, _ in
+                cont.resume(returning: summaries?.first)
+            }
+            store.execute(q)
+        }
+    }
+
+    /// Today's total step count summed across all data sources
+    /// (iPhone motion coprocessor, Apple Watch, third-party trackers).
+    /// Returns nil if HK is unavailable; returns 0 if HK is available
+    /// but no samples exist (rare on iPhone 5s+).
+    func fetchTodayStepCount() async -> Int? {
+        guard Self.isAvailable else { return nil }
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: .now)
+        let end = cal.date(byAdding: .day, value: 1, to: start) ?? .now
+        let pred = HKQuery.predicateForSamples(
+            withStart: start, end: end, options: .strictStartDate
+        )
+        return await withCheckedContinuation { cont in
+            let q = HKStatisticsQuery(
+                quantityType: HKQuantityType(.stepCount),
+                quantitySamplePredicate: pred,
+                options: .cumulativeSum
+            ) { _, stats, _ in
+                guard let stats, let sum = stats.sumQuantity() else {
+                    cont.resume(returning: 0)
+                    return
+                }
+                cont.resume(returning: Int(sum.doubleValue(for: .count())))
+            }
+            store.execute(q)
+        }
+    }
+
     // MARK: - Write (instance method, async + throws — audit H4)
 
     /// Mirrors a manual weight entry to Apple Health. Throws when HK
@@ -800,6 +880,14 @@ final class HealthKitService {
     static let lastWorkoutSyncKey = "hk_last_workout_sync"
     static let workoutAnchorKey = "hk_workout_anchor"
     static let didBackfillKey = "didHistoricalBackfill"
+    /// One-shot flag: existing installs granted HK auth before the
+    /// activity-summary / step-count read types were added to the
+    /// readTypes set. On first launch after the upgrade we call
+    /// requestAuthorization once so iOS surfaces a prompt for the new
+    /// types only (Apple stores per-type decisions; previously-granted
+    /// types are not re-prompted). Set after the call completes so it
+    /// never repeats.
+    static let didRequestActivityTypesKey = "hk_did_request_activity_types"
 }
 
 // MARK: - Swim detail (HK swim workout enrichment)
