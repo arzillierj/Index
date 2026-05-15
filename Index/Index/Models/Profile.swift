@@ -190,8 +190,22 @@ final class Profile {
         let arr = s.map(\.rawValue).sorted()
         guard let data = try? JSONEncoder().encode(arr),
               let str = String(data: data, encoding: .utf8) else {
-            return "[]"
+            // Decode-failure fallback (in `var enabledModules` getter)
+            // returns the full default set so a malformed blob doesn't
+            // strand the user without modules. Keep encode failure
+            // symmetric — `"[]"` would silently disable every module
+            // on the next read, the opposite of the decode-side
+            // intent. The literal here matches the JSONEncoder output
+            // for `["body","fitness","nutrition"]` (sorted, no
+            // whitespace) so the round-trip is byte-stable.
+            return Self.defaultModulesJSON
         }
         return str
     }
+
+    /// Stable JSON blob for the default-enabled module set
+    /// (Body / Fitness / Nutrition). Used both as the
+    /// `enabledModulesJSON` property default AND as the encode-failure
+    /// fallback above so the two paths are symmetric.
+    static let defaultModulesJSON = #"["body","fitness","nutrition"]"#
 }
