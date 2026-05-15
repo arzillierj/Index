@@ -3,9 +3,16 @@ import SwiftData
 
 @main
 struct IndexApp: App {
-    /// Key set in ApplicationSupport-wipe recovery so ContentView can
-    /// surface a one-time "your data was reset" alert on next render.
+    /// Set in ApplicationSupport-wipe recovery so ContentView can surface
+    /// a one-time "your data was reset" alert on next render.
     static let storeResetFlagKey = "storeResetDueToMigrationFailure"
+
+    /// Set when the ModelContainer init couldn't recover and we fell
+    /// back to an in-memory store. ContentView reads this and renders a
+    /// hard-error screen with a "Reset all data" button instead of
+    /// letting the user log into a phantom in-memory store unaware.
+    /// (Audit DQ5: single-shot wipe; no three-strikes retry budget.)
+    static let hardErrorFlagKey = "indexHardErrorOnLaunch"
 
     let modelContainer: ModelContainer = {
         let schema = Schema(IndexSchema.models)
@@ -18,19 +25,39 @@ struct IndexApp: App {
         do {
             return try ModelContainer(for: schema, configurations: [config])
         } catch {
-            // SCHEMA MIGRATION FAILED — the on-disk store can't be
-            // reconciled with the current model definitions. Wipe the
-            // store files and retry. Profile / UserExercise / weight /
-            // workout rows all go with it, but the app remains
-            // launchable; HK data re-syncs from Apple Health on next
-            // bootstrap.
-            print("SCHEMA MIGRATION FAILED: \(error)")
+            // H9: discriminate the catch. SwiftData's
+            // `loadIssueModelContainer` covers schema-mismatch +
+            // store-corruption — both unrecoverable without a wipe.
+            // Anything else (disk full, file-permission denial, unknown
+            // future error types) is preserved: we DON'T wipe the
+            // user's data on a transient I/O issue.
+            let isLoadIssue = (error as? SwiftDataError) == .loadIssueModelContainer
+            guard isLoadIssue else {
+                print("[IndexApp] persistence failed (not load-issue, NOT wiping): \(error)")
+                UserDefaults.standard.set(true, forKey: Self.hardErrorFlagKey)
+                return Self.makeFallbackContainer(schema: schema)
+            }
+
+            // Schema-load failure — single-shot wipe + retry. Profile /
+            // UserExercise / weight / workout rows all go with the
+            // wipe, but HK data re-syncs from Apple Health on next
+            // bootstrap and the app remains launchable. The reset
+            // alert in ContentView tells the user this happened.
+            print("[IndexApp] schema load failed; wiping store: \(error)")
             Self.deleteStoreFiles()
             UserDefaults.standard.set(true, forKey: storeResetFlagKey)
+
             do {
                 return try ModelContainer(for: schema, configurations: [config])
             } catch {
-                fatalError("Fresh ModelContainer init also failed after store wipe: \(error)")
+                // H8: no fatalError. Fall back to an in-memory store
+                // so the app launches and ContentView can render the
+                // hard-error screen with a path forward (delete +
+                // reinstall, or contact support). DQ5: don't loop —
+                // single-shot wipe was already attempted above.
+                print("[IndexApp] post-wipe init also failed: \(error)")
+                UserDefaults.standard.set(true, forKey: Self.hardErrorFlagKey)
+                return Self.makeFallbackContainer(schema: schema)
             }
         }
     }()
@@ -65,6 +92,26 @@ struct IndexApp: App {
         for suffix in ["", "-shm", "-wal"] {
             let url = supportURL.appendingPathComponent("default.store\(suffix)")
             try? fm.removeItem(at: url)
+        }
+    }
+
+    /// Last-resort in-memory ModelContainer used when the persistent
+    /// store is unrecoverable. Lets the app launch so ContentView can
+    /// render the hard-error screen instead of the process trapping at
+    /// startup. The in-memory store is wiped on every launch — but at
+    /// this point the user has already lost local data anyway, and
+    /// the goal is just "show the user a path forward."
+    ///
+    /// The fatalError below is reachable only if the in-memory init
+    /// itself fails — which requires a fundamentally broken Schema
+    /// (compile-time correct, runtime catastrophic). At that point
+    /// there's nothing useful to fall back to.
+    private static func makeFallbackContainer(schema: Schema) -> ModelContainer {
+        let memConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        do {
+            return try ModelContainer(for: schema, configurations: [memConfig])
+        } catch {
+            fatalError("In-memory ModelContainer init failed — schema is fundamentally broken: \(error)")
         }
     }
 }
