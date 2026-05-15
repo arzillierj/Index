@@ -31,7 +31,6 @@ enum IndexSchema {
             UserExercise.self,
             NutritionEntry.self,
             FoodProduct.self,
-            PhotoEstimateLog.self,
         ]
     }
 }
