@@ -12,6 +12,26 @@ struct ContentView: View {
 
     @State private var showStoreResetAlert = false
     @State private var showHardError = false
+    @State private var selectedTab: TabSlot = .body
+
+    private enum TabSlot: Hashable {
+        case body, fitness, nutrition
+    }
+
+    /// Per-module accent for the TabView. Whichever tab is active drives
+    /// the active-indicator color, the Log button tint inside that tab's
+    /// NavigationStack, the brain insight sparkle, the chart highlights,
+    /// and any other `.foregroundStyle(.tint)` site that lives in the
+    /// module's main screen. Data-viz colors (HR red, Distance blue,
+    /// SWOLF teal, Energy orange) come from IndexPalette.Data.* directly
+    /// so they don't shift when the tab changes.
+    private var currentTabAccent: Color {
+        switch selectedTab {
+        case .body:      return IndexPalette.Module.body
+        case .fitness:   return IndexPalette.Module.fitness
+        case .nutrition: return IndexPalette.Module.nutrition
+        }
+    }
 
     var body: some View {
         Group {
@@ -163,23 +183,24 @@ struct ContentView: View {
     // TabView containing every module the active Profile has enabled.
     // Body, Fitness, and Nutrition can each be toggled off in Settings.
     private func bodyTabPlaceholder(profile: Profile) -> some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             if profile.enabledModules.contains(.body) {
-                Tab("Body", systemImage: "scalemass") {
+                Tab("Body", systemImage: "scalemass", value: TabSlot.body) {
                     NavigationStack { BodyView() }
                 }
             }
             if profile.enabledModules.contains(.fitness) {
-                Tab("Fitness", systemImage: "figure.run") {
+                Tab("Fitness", systemImage: "figure.run", value: TabSlot.fitness) {
                     NavigationStack { FitnessMainView() }
                 }
             }
             if profile.enabledModules.contains(.nutrition) {
-                Tab("Nutrition", systemImage: "fork.knife") {
+                Tab("Nutrition", systemImage: "fork.knife", value: TabSlot.nutrition) {
                     NavigationStack { NutritionMainView() }
                 }
             }
         }
+        .tint(currentTabAccent)
     }
 
     // MARK: - Onboarding completion

@@ -166,12 +166,16 @@ struct NutritionMainView: View {
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
+                // Icon picks up the Nutrition module accent (teal). Text
+                // stays near-black so the label reads at default contrast
+                // and the icon carries the module identity on its own.
                 Image(systemName: icon)
                     .font(.title3)
+                    .foregroundStyle(IndexPalette.Module.nutrition)
                 Text(title)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
             }
-            .foregroundStyle(.primary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
             .background(IndexPalette.Surface.card)
