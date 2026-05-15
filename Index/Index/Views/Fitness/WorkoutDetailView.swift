@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Charts
 
 /// Detail screen for any non-strength WorkoutSession. Cycling, running,
 /// swimming, squash, and other all use this view — the stat grid auto-
@@ -17,14 +18,31 @@ struct WorkoutDetailView: View {
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(HealthKitService.self) private var hkService
 
     @State private var showDeleteConfirm = false
+
+    // Swim-only enrichment loaded from HK on appear. Nil for non-swim
+    // workouts, manual entries, and any swim that HK can't find by UUID.
+    @State private var swimDetail: SwimDetailData? = nil
+    @State private var isLoadingSwim = false
+    @State private var showAutoSets = false
+
+    // Color palette (literal hex values per spec; not Apple system aliases)
+    private static let hrRed       = Color(red: 1.0,        green: 0x3B / 255, blue: 0x30 / 255)
+    private static let swolfTeal   = Color(red: 0x5A / 255, green: 0xC8 / 255, blue: 0xFA / 255)
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 heroSection
+                if session.type == .swimming {
+                    swimHeartRateSection
+                }
                 statsGrid
+                if session.type == .swimming, let detail = swimDetail, !detail.sets.isEmpty {
+                    autoSetsRow
+                }
                 if session.type == .cycling {
                     routePlaceholder
                 }
@@ -50,6 +68,30 @@ struct WorkoutDetailView: View {
         } message: {
             Text("Removes it from Index. Apple Health is unaffected.")
         }
+        .task {
+            await loadSwimDetailIfNeeded()
+        }
+        .sheet(isPresented: $showAutoSets) {
+            if let detail = swimDetail {
+                SwimAutoSetsSheet(sets: detail.sets, lengths: detail.lengths)
+            }
+        }
+    }
+
+    // MARK: - Swim load
+
+    private var canFetchSwimDetail: Bool {
+        session.type == .swimming
+            && session.source == .healthkit
+            && (session.hkWorkoutUUID?.isEmpty == false)
+    }
+
+    private func loadSwimDetailIfNeeded() async {
+        guard canFetchSwimDetail, swimDetail == nil, !isLoadingSwim else { return }
+        guard let uuid = session.hkWorkoutUUID, !uuid.isEmpty else { return }
+        isLoadingSwim = true
+        swimDetail = await hkService.fetchSwimDetail(forWorkoutUUID: uuid)
+        isLoadingSwim = false
     }
 
     // MARK: - Hero
@@ -98,10 +140,23 @@ struct WorkoutDetailView: View {
             if session.hasDistance {
                 statTile(label: "Distance", value: SafeFormat.decimal(session.distanceKm), unit: "km")
             }
+            if session.type == .swimming, let avgSwolf = swimDetail?.avgSWOLF {
+                statTile(label: "Avg SWOLF", value: SafeFormat.int(avgSwolf), unit: nil, valueColor: Self.swolfTeal)
+            }
+            if session.type == .swimming, let pool = swimDetail?.poolLengthMeters {
+                // Neutral value color (default Color.primary) — teal stays
+                // exclusive to SWOLF as the swim-efficiency metric.
+                statTile(label: "Pool Length", value: "\(Int(pool.rounded()))", unit: "m")
+            }
         }
     }
 
-    private func statTile(label: String, value: String, unit: String) -> some View {
+    private func statTile(
+        label: String,
+        value: String,
+        unit: String?,
+        valueColor: Color? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.caption)
@@ -109,9 +164,12 @@ struct WorkoutDetailView: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(.title3.monospacedDigit())
-                Text(unit)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(valueColor ?? Color.primary)
+                if let unit {
+                    Text(unit)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,6 +177,114 @@ struct WorkoutDetailView: View {
         .padding(.vertical, 14)
         .background(Color(.secondarySystemBackground))
         .clipShape(.rect(cornerRadius: 12))
+    }
+
+    // MARK: - Swim heart rate section (above stat grid, swim-only)
+
+    @ViewBuilder
+    private var swimHeartRateSection: some View {
+        if session.source == .healthkit {
+            if isLoadingSwim {
+                heartRateLoading
+            } else if let samples = swimDetail?.hrSamples, !samples.isEmpty {
+                heartRateChart(samples: samples)
+            }
+            // else: no samples → hide entirely (per spec)
+        }
+    }
+
+    private var heartRateLoading: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Heart Rate")
+                .font(.caption.smallCaps())
+                .foregroundStyle(.secondary)
+                .tracking(0.8)
+            HStack {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading samples…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(Color(.secondarySystemBackground))
+            .clipShape(.rect(cornerRadius: 12))
+        }
+    }
+
+    private func heartRateChart(samples: [SwimHRSample]) -> some View {
+        let bpms     = samples.map(\.bpm)
+        let minBPM   = bpms.min() ?? 0
+        let maxBPM   = bpms.max() ?? 0
+        // Pad ±10 BPM, clamp lower to 0 so HR can't go negative.
+        let yLow     = max(0, (minBPM - 10).rounded(.down))
+        let yHigh    = (maxBPM + 10).rounded(.up)
+        let avg      = bpms.isEmpty ? 0 : bpms.reduce(0, +) / Double(bpms.count)
+        let start    = samples.first?.date ?? .now
+        let end      = samples.last?.date  ?? .now
+        let mid      = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Heart Rate")
+                .font(.caption.smallCaps())
+                .foregroundStyle(.secondary)
+                .tracking(0.8)
+            Chart {
+                ForEach(samples) { sample in
+                    LineMark(
+                        x: .value("Time", sample.date),
+                        y: .value("BPM",  sample.bpm)
+                    )
+                    .foregroundStyle(Self.hrRed)
+                    .interpolationMethod(.monotone)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                }
+            }
+            .chartYScale(domain: yLow...yHigh)
+            .chartXAxis {
+                AxisMarks(values: [start, mid, end]) { _ in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel(format: .dateTime.hour().minute())
+                }
+            }
+            .chartYAxis {
+                AxisMarks { _ in
+                    AxisGridLine()
+                    AxisValueLabel()
+                }
+            }
+            .frame(height: 160)
+            Text("\(Int(avg.rounded())) BPM AVG")
+                .font(.caption.monospaced())
+                .foregroundStyle(Self.hrRed)
+                .tracking(0.6)
+        }
+    }
+
+    // MARK: - Auto Sets row (swim-only, opens detail sheet)
+
+    private var autoSetsRow: some View {
+        Button {
+            showAutoSets = true
+        } label: {
+            HStack {
+                Text("Auto Sets")
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(.rect(cornerRadius: 12))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Route placeholder (cycling only)

@@ -44,7 +44,7 @@ final class HealthKitService {
     // MARK: - Type sets
 
     private var readTypes: Set<HKObjectType> {
-        var types: Set<HKObjectType> = [
+        let types: Set<HKObjectType> = [
             HKQuantityType(.bodyMass),
             HKQuantityType(.bodyFatPercentage),
             HKQuantityType(.leanBodyMass),
@@ -327,10 +327,15 @@ final class HealthKitService {
         guard Self.isAvailable else { return }
         workoutAnchor = loadWorkoutAnchor()
 
-        let handler: (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, Error?) -> Void = {
+        // HKAnchoredObjectQuery's `resultsHandler` and `updateHandler` are
+        // typed `@Sendable`. Marking the closure explicitly satisfies
+        // Swift 6 strict concurrency. The closure only captures `self`
+        // weakly, and all main-actor state access is gated through a
+        // `Task { @MainActor in ... }` hop below.
+        let handler: @Sendable (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, Error?) -> Void = {
             [weak self] _, samples, _, newAnchor, error in
-            guard let self, error == nil else { return }
-            Task { @MainActor [weak self] in
+            guard error == nil else { return }
+            Task { @MainActor in
                 guard let self else { return }
                 // ANCHOR-GATING FIX (v0 audit). Do NOT advance the anchor if
                 // the import toggle is off. Otherwise samples delivered in
@@ -618,4 +623,229 @@ final class HealthKitService {
     static let lastWorkoutSyncKey = "hk_last_workout_sync"
     static let workoutAnchorKey = "hk_workout_anchor"
     static let didBackfillKey = "didHistoricalBackfill"
+}
+
+// MARK: - Swim detail (HK swim workout enrichment)
+
+/// Stroke styles surfaced to v2 callers — mirrors HKSwimmingStrokeStyle but
+/// keeps HK types out of public API per the audit.
+enum SwimStroke: String, Sendable {
+    case freestyle, backstroke, breaststroke, butterfly, kickboard, mixed, unknown
+
+    var label: String {
+        switch self {
+        case .freestyle:    "Freestyle"
+        case .backstroke:   "Backstroke"
+        case .breaststroke: "Breaststroke"
+        case .butterfly:    "Butterfly"
+        case .kickboard:    "Kickboard"
+        case .mixed:        "Mixed"
+        case .unknown:      "Unknown"
+        }
+    }
+}
+
+struct SwimHRSample: Sendable, Identifiable, Hashable {
+    let id = UUID()
+    let date: Date
+    let bpm: Double
+}
+
+struct SwimLength: Sendable, Identifiable {
+    let id = UUID()
+    let index: Int
+    let stroke: SwimStroke
+    let duration: TimeInterval
+    let swolf: Int?
+}
+
+struct SwimSet: Sendable, Identifiable {
+    let id = UUID()
+    let index: Int
+    let stroke: SwimStroke
+    let distanceMeters: Double
+    let swimDuration: TimeInterval
+    let restDuration: TimeInterval
+    let avgSWOLF: Double?
+    let pacePer100m: TimeInterval
+    let avgHR: Double?
+}
+
+struct SwimDetailData: Sendable {
+    let hrSamples: [SwimHRSample]
+    let avgSWOLF: Double?
+    let sets: [SwimSet]
+    let lengths: [SwimLength]
+    /// Pool length in meters as detected from HKMetadataKeyLapLength
+    /// (workout-level first, then per-lap fallback). Nil when neither
+    /// source carried the metadata — the UI hides the Pool Length tile
+    /// rather than guessing.
+    let poolLengthMeters: Double?
+}
+
+extension HealthKitService {
+
+    /// Looks up the HKWorkout by UUID, then enriches it with HR samples
+    /// and HKWorkoutEvent lap data (per-length stroke + SWOLF). Returns
+    /// nil if HK can't find the workout (manual entry has no HK record;
+    /// HK auth was revoked since import; sample was deleted from Health).
+    ///
+    /// Caller (WorkoutDetailView) is expected to gate this on
+    /// `session.type == .swimming && session.source == .healthkit`.
+    func fetchSwimDetail(forWorkoutUUID uuidString: String) async -> SwimDetailData? {
+        guard Self.isAvailable, let uuid = UUID(uuidString: uuidString) else { return nil }
+
+        // 1. Find the HKWorkout by UUID.
+        let workoutPred = HKQuery.predicateForObject(with: uuid)
+        let workout: HKWorkout? = await withCheckedContinuation { cont in
+            let q = HKSampleQuery(
+                sampleType: HKObjectType.workoutType(),
+                predicate: workoutPred,
+                limit: 1,
+                sortDescriptors: nil
+            ) { _, samples, _ in
+                cont.resume(returning: samples?.first as? HKWorkout)
+            }
+            store.execute(q)
+        }
+        guard let workout else { return nil }
+
+        // 2. HR samples within the workout window.
+        let hrSamples: [SwimHRSample] = await fetchHRSamples(start: workout.startDate, end: workout.endDate)
+            .map {
+                SwimHRSample(
+                    date: $0.startDate,
+                    bpm: $0.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
+                )
+            }
+
+        // 3. Lap events. Watch swim workouts emit one .lap event per
+        //    pool length swum, with stroke-style + SWOLF in metadata.
+        let lapEvents = (workout.workoutEvents ?? []).filter { $0.type == .lap }
+
+        // Pool length detection — workout-level metadata first (where
+        // Apple Health usually puts it), then per-lap fallback. Nil
+        // when neither source has it; surfaced on SwimDetailData so the
+        // UI can hide the Pool Length tile (per spec: don't display a
+        // guess). For internal grouping math we still default to 25m
+        // so the per-set distance figures remain sensible.
+        let detectedPoolLength: Double? = {
+            if let q = workout.metadata?[HKMetadataKeyLapLength] as? HKQuantity {
+                return q.doubleValue(for: .meter())
+            }
+            for ev in lapEvents {
+                if let q = ev.metadata?[HKMetadataKeyLapLength] as? HKQuantity {
+                    return q.doubleValue(for: .meter())
+                }
+            }
+            return nil
+        }()
+        let poolLengthForGrouping: Double = detectedPoolLength ?? 25
+
+        var lengths: [SwimLength] = []
+        for (i, event) in lapEvents.enumerated() {
+            let strokeRaw = (event.metadata?[HKMetadataKeySwimmingStrokeStyle] as? NSNumber)?.intValue ?? 0
+            let strokeHK  = HKSwimmingStrokeStyle(rawValue: strokeRaw) ?? .unknown
+            let stroke    = mapStroke(strokeHK)
+            let swolf     = (event.metadata?[HKMetadataKeySWOLFScore] as? NSNumber)?.intValue
+            lengths.append(SwimLength(
+                index: i + 1,
+                stroke: stroke,
+                duration: event.dateInterval.duration,
+                swolf: swolf
+            ))
+        }
+
+        // 4. Group sequential same-stroke lengths into sets. Stroke
+        //    change → new set (per spec). Track the underlying lap
+        //    events so we can compute set start/end + rest gaps.
+        struct Bucket {
+            let stroke: SwimStroke
+            var lengths: [SwimLength]
+            var lapEvents: [HKWorkoutEvent]
+        }
+        var buckets: [Bucket] = []
+        for (i, len) in lengths.enumerated() {
+            let event = lapEvents[i]
+            if let lastIdx = buckets.indices.last, buckets[lastIdx].stroke == len.stroke {
+                buckets[lastIdx].lengths.append(len)
+                buckets[lastIdx].lapEvents.append(event)
+            } else {
+                buckets.append(Bucket(stroke: len.stroke, lengths: [len], lapEvents: [event]))
+            }
+        }
+
+        // 5. Materialize SwimSet rows.
+        var sets: [SwimSet] = []
+        for (idx, bucket) in buckets.enumerated() {
+            let distance = poolLengthForGrouping * Double(bucket.lengths.count)
+            let swimDur  = bucket.lapEvents.reduce(0.0) { $0 + $1.dateInterval.duration }
+
+            let swolfVals = bucket.lengths.compactMap(\.swolf).map(Double.init)
+            let avgSwolf: Double? = swolfVals.isEmpty
+                ? nil
+                : swolfVals.reduce(0, +) / Double(swolfVals.count)
+
+            // Rest duration = gap from this set's last lap end to the
+            // next set's first lap start. Last set has no following
+            // rest, so 0.
+            let restDur: TimeInterval
+            if idx + 1 < buckets.count,
+               let thisEnd  = bucket.lapEvents.last?.dateInterval.end,
+               let nextStart = buckets[idx + 1].lapEvents.first?.dateInterval.start {
+                restDur = max(0, nextStart.timeIntervalSince(thisEnd))
+            } else {
+                restDur = 0
+            }
+
+            let pace100: TimeInterval = distance > 0 ? swimDur * 100.0 / distance : 0
+
+            // Avg HR within the set's swim window.
+            let avgHR: Double? = {
+                guard let setStart = bucket.lapEvents.first?.dateInterval.start,
+                      let setEnd   = bucket.lapEvents.last?.dateInterval.end else { return nil }
+                let inSet = hrSamples.filter { $0.date >= setStart && $0.date <= setEnd }
+                guard !inSet.isEmpty else { return nil }
+                return inSet.reduce(0.0) { $0 + $1.bpm } / Double(inSet.count)
+            }()
+
+            sets.append(SwimSet(
+                index: idx + 1,
+                stroke: bucket.stroke,
+                distanceMeters: distance,
+                swimDuration: swimDur,
+                restDuration: restDur,
+                avgSWOLF: avgSwolf,
+                pacePer100m: pace100,
+                avgHR: avgHR
+            ))
+        }
+
+        // Overall avg SWOLF across all lengths that carry the metadata.
+        let allSWOLF = lengths.compactMap(\.swolf).map(Double.init)
+        let overallSWOLF: Double? = allSWOLF.isEmpty
+            ? nil
+            : allSWOLF.reduce(0, +) / Double(allSWOLF.count)
+
+        return SwimDetailData(
+            hrSamples: hrSamples,
+            avgSWOLF: overallSWOLF,
+            sets: sets,
+            lengths: lengths,
+            poolLengthMeters: detectedPoolLength
+        )
+    }
+
+    private func mapStroke(_ hk: HKSwimmingStrokeStyle) -> SwimStroke {
+        switch hk {
+        case .unknown:      return .unknown
+        case .mixed:        return .mixed
+        case .freestyle:    return .freestyle
+        case .backstroke:   return .backstroke
+        case .breaststroke: return .breaststroke
+        case .butterfly:    return .butterfly
+        case .kickboard:    return .kickboard
+        @unknown default:   return .unknown
+        }
+    }
 }
