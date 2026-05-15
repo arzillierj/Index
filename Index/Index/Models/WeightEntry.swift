@@ -21,6 +21,14 @@ final class WeightEntry {
     /// HK dedup predicates intentionally do NOT filter on this flag — that's
     /// how swipe-deletes act as tombstones against re-import.
     var deletedFromIndex: Bool = false
+    /// HK sample UUID for auto-imported (HealthKit / RENPHO via HK)
+    /// weight entries. Primary dedup key in
+    /// HealthKitService.handleNewBodyMass — preferred over the ±5-min
+    /// date window once populated. nil for manual entries (`source =
+    /// .manual`) and for any auto-imports created before this field
+    /// existed (pre-2026-05-15). The date-window fallback handles
+    /// those legacy rows.
+    var hkSampleUUID: String? = nil
 
     init(
         date: Date = .now,
@@ -31,7 +39,8 @@ final class WeightEntry {
         hasLeanMass: Bool = false,
         notes: String = "",
         source: WeightSource = .manual,
-        deletedFromIndex: Bool = false
+        deletedFromIndex: Bool = false,
+        hkSampleUUID: String? = nil
     ) {
         self.date = date
         self.weightKg = weightKg
@@ -42,6 +51,7 @@ final class WeightEntry {
         self.notes = notes
         self.sourceRaw = source.rawValue
         self.deletedFromIndex = deletedFromIndex
+        self.hkSampleUUID = hkSampleUUID
     }
 
     var source: WeightSource {

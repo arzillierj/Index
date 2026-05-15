@@ -189,6 +189,7 @@ final class HealthKitService {
         let date = bmSample.startDate
         let source = detectWeightSource(bmSample)
         let bmBundleId = bmSample.sourceRevision.source.bundleIdentifier
+        let bmUUIDString = bmSample.uuid.uuidString
 
         // Always refresh the published "latest" tuples — they're for
         // display and want the freshest reading regardless of source.
@@ -228,9 +229,22 @@ final class HealthKitService {
             leanKg = ls.quantity.doubleValue(for: .gramUnit(with: .kilo))
         }
 
-        // Dedup against existing WeightEntry rows within ±5 min. Predicate
-        // intentionally does NOT filter on deletedFromIndex — that's how
+        // Two-tier dedup (audit H5):
+        //   1. Primary — HK sample UUID match. Covers every re-import
+        //      of an auto-imported weight (observer re-fire after
+        //      auth re-grant, store rebuild, app reinstall preserving
+        //      HK auth, etc.).
+        //   2. Secondary — ±5-min date window. Covers manual logs
+        //      (`source = .manual`, hkSampleUUID = nil) and pre-H5
+        //      legacy rows that don't carry a UUID.
+        //
+        // Neither predicate filters on `deletedFromIndex` — that's how
         // swipe-deletes act as tombstones against re-import.
+        let uuidDesc = FetchDescriptor<WeightEntry>(
+            predicate: #Predicate { $0.hkSampleUUID == bmUUIDString }
+        )
+        if !(((try? ctx.fetch(uuidDesc)) ?? []).isEmpty) { return }
+
         let dedupeStart = date.addingTimeInterval(-window)
         let dedupeEnd   = date.addingTimeInterval(window)
         let desc = FetchDescriptor<WeightEntry>(
@@ -245,7 +259,8 @@ final class HealthKitService {
             hasBodyFat: fatPct != nil,
             leanMassKg: leanKg ?? 0,
             hasLeanMass: leanKg != nil,
-            source: source
+            source: source,
+            hkSampleUUID: bmUUIDString
         )
         ctx.insert(entry)
     }
