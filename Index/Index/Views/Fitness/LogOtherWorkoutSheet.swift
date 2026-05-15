@@ -32,6 +32,11 @@ struct LogOtherWorkoutSheet: View {
 
     private static let subTypes = ["Hiking", "Walking", "Yoga", "Other"]
 
+    // Audit H14 — bounded ranges (mirrors LogCyclingSheet). Distance
+    // applies only to .running / .swimming presets per `showsDistance`.
+    private static let durationRangeMin: ClosedRange<Double> = 1...1440
+    private static let distanceRangeKm:  ClosedRange<Double> = 0...300
+
     private var showsDistance: Bool {
         preset == .running || preset == .swimming
     }
@@ -40,13 +45,32 @@ struct LogOtherWorkoutSheet: View {
         preset == .other
     }
 
+    private var durationValidation: FieldValidation {
+        FieldValidation(
+            text: durationText,
+            range: Self.durationRangeMin,
+            errorMessage: "Duration must be 1–1440 minutes"
+        )
+    }
+    private var distanceValidation: FieldValidation {
+        FieldValidation(
+            text: distanceText,
+            range: Self.distanceRangeKm,
+            errorMessage: "Distance must be 0–300 km"
+        )
+    }
+
     private var parsedDurationMin: Int? {
-        let v = Int(durationText)
-        return (v.map { $0 > 0 } == true) ? v : nil
+        durationValidation.parsedInRange.map { Int($0) }
     }
 
     private var parsedDistanceKm: Double? {
-        Double(distanceText.replacingOccurrences(of: ",", with: "."))
+        distanceValidation.parsedInRange
+    }
+
+    private var canSave: Bool {
+        parsedDurationMin != nil
+            && (!showsDistance || distanceValidation.error == nil)
     }
 
     private var title: String {
@@ -72,6 +96,9 @@ struct LogOtherWorkoutSheet: View {
                             .focused($focusedField, equals: .duration)
                         Text("minutes").foregroundStyle(.secondary)
                     }
+                    if let err = durationValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
+                    }
                 }
 
                 Section("Intensity") {
@@ -91,6 +118,9 @@ struct LogOtherWorkoutSheet: View {
                                 .keyboardType(.decimalPad)
                                 .focused($focusedField, equals: .distance)
                             Text("km").foregroundStyle(.secondary)
+                        }
+                        if let err = distanceValidation.error {
+                            Text(err).font(.caption).foregroundStyle(.red)
                         }
                     }
                     DatePicker(
@@ -117,7 +147,7 @@ struct LogOtherWorkoutSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
-                        .disabled(parsedDurationMin == nil)
+                        .disabled(!canSave)
                 }
             }
             .onAppear {

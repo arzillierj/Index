@@ -18,13 +18,37 @@ struct LogCyclingSheet: View {
         case duration, distance, notes
     }
 
+    // Audit H14 — bounded ranges so a typo of "99999" min or "5000" km
+    // doesn't silently save garbage. 1440 min = one full day; 300 km
+    // is well above the longest single sportive cyclists log here.
+    private static let durationRangeMin: ClosedRange<Double> = 1...1440
+    private static let distanceRangeKm:  ClosedRange<Double> = 0...300
+
+    private var durationValidation: FieldValidation {
+        FieldValidation(
+            text: durationText,
+            range: Self.durationRangeMin,
+            errorMessage: "Duration must be 1–1440 minutes"
+        )
+    }
+    private var distanceValidation: FieldValidation {
+        FieldValidation(
+            text: distanceText,
+            range: Self.distanceRangeKm,
+            errorMessage: "Distance must be 0–300 km"
+        )
+    }
+
     private var parsedDurationMin: Int? {
-        let v = Int(durationText)
-        return (v.map { $0 > 0 } == true) ? v : nil
+        durationValidation.parsedInRange.map { Int($0) }
     }
 
     private var parsedDistanceKm: Double? {
-        Double(distanceText.replacingOccurrences(of: ",", with: "."))
+        distanceValidation.parsedInRange
+    }
+
+    private var canSave: Bool {
+        parsedDurationMin != nil && distanceValidation.error == nil
     }
 
     var body: some View {
@@ -36,6 +60,9 @@ struct LogCyclingSheet: View {
                             .keyboardType(.numberPad)
                             .focused($focusedField, equals: .duration)
                         Text("minutes").foregroundStyle(.secondary)
+                    }
+                    if let err = durationValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
                     }
                 }
 
@@ -57,6 +84,9 @@ struct LogCyclingSheet: View {
                             .keyboardType(.decimalPad)
                             .focused($focusedField, equals: .distance)
                         Text("km").foregroundStyle(.secondary)
+                    }
+                    if let err = distanceValidation.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
                     }
                     DatePicker(
                         "Date",
@@ -82,7 +112,7 @@ struct LogCyclingSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
-                        .disabled(parsedDurationMin == nil)
+                        .disabled(!canSave)
                 }
             }
             .onAppear {
