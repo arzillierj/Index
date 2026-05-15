@@ -55,12 +55,23 @@ final class ProfileService {
     }
 
     /// Confirm migration: re-key the orphan Profile to the active userId.
-    /// The Profile retains all of its data (weight entries, workouts, etc.)
-    /// because those are independent rows — only `Profile.userId` changes.
-    func acceptMigration(in _: ModelContext) {
+    /// The Profile retains all of its data (weight entries, workouts,
+    /// etc.) because those are independent rows — only `Profile.userId`
+    /// changes.
+    ///
+    /// Audit H6 — explicit `try context.save()`. SwiftData autosave
+    /// fires "next runloop tick when dirty"; an app kill between the
+    /// userId mutation and the autosave would lose the re-key and the
+    /// next launch would re-present the migration prompt.
+    func acceptMigration(in context: ModelContext) {
         guard let orphan = orphanProfileForMigration,
               let userId = identity.currentUserId else { return }
         orphan.userId = userId
+        do {
+            try context.save()
+        } catch {
+            print("[ProfileService] acceptMigration save failed: \(error)")
+        }
         activeProfile = orphan
         orphanProfileForMigration = nil
     }
@@ -68,16 +79,29 @@ final class ProfileService {
     /// Decline migration: delete the orphan and create a fresh Profile
     /// keyed to the active userId. Caller is responsible for confirming
     /// destructive intent in the UI before invoking this.
+    ///
+    /// Audit H6 — both the delete and the subsequent insert are wrapped
+    /// in a single explicit save so an app kill between operations
+    /// can't leave the user with no Profile (which would silently
+    /// route them back through OnboardingView and create yet another).
     func declineMigration(in context: ModelContext) {
         if let orphan = orphanProfileForMigration {
             context.delete(orphan)
         }
         orphanProfileForMigration = nil
         createFreshProfile(in: context)
+        do {
+            try context.save()
+        } catch {
+            print("[ProfileService] declineMigration save failed: \(error)")
+        }
     }
 
-    /// Onboarding-completion path: no Profile exists, create one keyed to
-    /// the current userId. Caller fills in name/age/etc. after this returns.
+    /// Onboarding-completion path: no Profile exists, create one keyed
+    /// to the current userId. Caller fills in name/age/etc. after this
+    /// returns. Save is the caller's responsibility (e.g.,
+    /// ContentView.completeOnboarding wraps the inserts + save in one
+    /// transaction — audit H12).
     func createFreshProfile(in context: ModelContext) {
         guard let userId = identity.currentUserId else { return }
         let profile = Profile(userId: userId)
