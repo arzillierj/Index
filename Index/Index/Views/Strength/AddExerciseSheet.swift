@@ -8,13 +8,19 @@ struct AddExerciseSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
+    /// Unfiltered intentionally — the duplicate check below counts
+    /// hidden rows too so a previously-removed catalog id un-hides
+    /// instead of inserting a duplicate (audit DQ4).
     @Query(sort: \UserExercise.displayOrder) private var existing: [UserExercise]
 
     var body: some View {
         NavigationStack {
             List {
                 ForEach(ExerciseCatalog.starter) { def in
-                    let isAdded = existing.contains { $0.id == def.id }
+                    // "Added" = present and visible. A hidden row is
+                    // re-addable (tap un-hides it).
+                    let visibleMatch = existing.first { $0.id == def.id && !$0.hiddenFromLibrary }
+                    let isAdded = visibleMatch != nil
                     Button {
                         add(def)
                     } label: {
@@ -48,6 +54,15 @@ struct AddExerciseSheet: View {
     }
 
     private func add(_ def: ExerciseDefinition) {
+        // If a hidden row for this catalog id already exists, un-hide
+        // it instead of inserting a duplicate (audit DQ4). Catalog ids
+        // are deterministic and become UserExercise.id verbatim, so
+        // duplicate inserts would break ExercisePerformance.userExerciseId
+        // → UserExercise.id soft-link resolution in old session history.
+        if let existingHidden = existing.first(where: { $0.id == def.id && $0.hiddenFromLibrary }) {
+            existingHidden.hiddenFromLibrary = false
+            return
+        }
         let nextOrder = (existing.map(\.displayOrder).max() ?? -1) + 1
         let ex = UserExercise.fromCatalog(def, displayOrder: nextOrder)
         context.insert(ex)

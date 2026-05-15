@@ -8,7 +8,11 @@ struct ExercisePickerSheet: View {
     let onPick: (UserExercise) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \UserExercise.displayOrder) private var exercises: [UserExercise]
+    @Query(
+        filter: #Predicate<UserExercise> { !$0.hiddenFromLibrary },
+        sort: \UserExercise.displayOrder
+    )
+    private var exercises: [UserExercise]
 
     var body: some View {
         NavigationStack {

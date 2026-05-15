@@ -8,7 +8,11 @@ import SwiftData
 struct StrengthLibraryView: View {
     @Environment(\.modelContext) private var context
 
-    @Query(sort: \UserExercise.displayOrder) private var exercises: [UserExercise]
+    @Query(
+        filter: #Predicate<UserExercise> { !$0.hiddenFromLibrary },
+        sort: \UserExercise.displayOrder
+    )
+    private var exercises: [UserExercise]
 
     @State private var showAdd = false
 
@@ -35,7 +39,13 @@ struct StrengthLibraryView: View {
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
-                                context.delete(ex)
+                                // Audit DQ4 — soft-hide instead of
+                                // hard-delete. Past session history
+                                // still resolves the exercise name
+                                // via the userExerciseId soft-link;
+                                // re-adding from AddExerciseSheet
+                                // un-hides the same row.
+                                ex.hiddenFromLibrary = true
                             } label: {
                                 Label("Remove", systemImage: "trash")
                             }

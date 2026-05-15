@@ -60,6 +60,14 @@ final class UserExercise {
     // DEPRECATED: 2026-05-15 — never read or written by any view or
     // service. Field stays per the schema rules; no callers remain.
     var notes: String = ""
+    /// Soft-hide marker for the user's library list (audit DQ4).
+    /// True means the row is excluded from StrengthLibraryView and
+    /// ExercisePickerSheet, but old session history still resolves
+    /// the exercise name via ExercisePerformance.userExerciseId →
+    /// UserExercise.id (both queries see hidden rows). Re-adding the
+    /// same catalog id from AddExerciseSheet flips this back to false
+    /// rather than inserting a duplicate row.
+    var hiddenFromLibrary: Bool = false
 
     init(
         id: String = UUID().uuidString,
@@ -67,7 +75,8 @@ final class UserExercise {
         kind: ExerciseKind = .free,
         defaultRestSeconds: Int = 90,
         displayOrder: Int = 0,
-        notes: String = ""
+        notes: String = "",
+        hiddenFromLibrary: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -75,6 +84,7 @@ final class UserExercise {
         self.defaultRestSeconds = defaultRestSeconds
         self.displayOrder = displayOrder
         self.notes = notes
+        self.hiddenFromLibrary = hiddenFromLibrary
     }
 
     var kind: ExerciseKind {
