@@ -27,17 +27,55 @@ struct BarcodeScannerView: View {
     let onDetect: (String) -> Void
     let onCancel: () -> Void
 
+    /// Surfaces a setup failure (camera busy, device-input init
+    /// failed, addInput/addOutput refused) so the user sees an
+    /// explanation instead of a black screen + xmark button. Audit H22.
+    @State private var setupFailureReason: String? = nil
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            CameraPreviewRepresentable(onScan: onDetect)
+            if setupFailureReason == nil {
+                CameraPreviewRepresentable(
+                    onScan: onDetect,
+                    onSetupFailed: { reason in
+                        setupFailureReason = reason
+                    }
+                )
                 .ignoresSafeArea()
+            }
 
-            ScannerOverlayView(onCancel: onCancel)
+            if let reason = setupFailureReason {
+                setupFailureView(reason: reason)
+            } else {
+                ScannerOverlayView(onCancel: onCancel)
+            }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden()
+    }
+
+    private func setupFailureView(reason: String) -> some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "video.slash.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(.white.opacity(0.7))
+            Text("Camera unavailable")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+            Text(reason)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Spacer()
+            Button("Close") { onCancel() }
+                .buttonStyle(.borderedProminent)
+                .padding(.bottom, 48)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -45,9 +83,13 @@ struct BarcodeScannerView: View {
 
 private struct CameraPreviewRepresentable: UIViewControllerRepresentable {
     let onScan: (String) -> Void
+    /// Bridges AVFoundation setup failures back to the SwiftUI parent
+    /// so it can render an error surface instead of a silent black
+    /// screen (audit H22).
+    let onSetupFailed: (String) -> Void
 
     func makeUIViewController(context: Context) -> ScannerViewController {
-        ScannerViewController(onScan: onScan)
+        ScannerViewController(onScan: onScan, onSetupFailed: onSetupFailed)
     }
 
     func updateUIViewController(_ vc: ScannerViewController, context: Context) {}
@@ -57,16 +99,23 @@ private struct CameraPreviewRepresentable: UIViewControllerRepresentable {
 
 final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     private let onScan: (String) -> Void
+    private let onSetupFailed: (String) -> Void
     nonisolated(unsafe) private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var hasScanned = false
 
-    init(onScan: @escaping (String) -> Void) {
+    init(
+        onScan: @escaping (String) -> Void,
+        onSetupFailed: @escaping (String) -> Void
+    ) {
         self.onScan = onScan
+        self.onSetupFailed = onSetupFailed
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not supported — BarcodeScannerView is SwiftUI-presented only")
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -98,13 +147,27 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     }
 
     private func setupSession() {
-        guard let device = AVCaptureDevice.default(for: .video),
-              let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input)
-        else { return }
+        guard let device = AVCaptureDevice.default(for: .video) else {
+            onSetupFailed("No camera was found on this device.")
+            return
+        }
+        let input: AVCaptureDeviceInput
+        do {
+            input = try AVCaptureDeviceInput(device: device)
+        } catch {
+            onSetupFailed("Couldn't open the camera. It may be in use by another app. (\(error.localizedDescription))")
+            return
+        }
+        guard session.canAddInput(input) else {
+            onSetupFailed("Couldn't attach the camera input. Try again.")
+            return
+        }
 
         let output = AVCaptureMetadataOutput()
-        guard session.canAddOutput(output) else { return }
+        guard session.canAddOutput(output) else {
+            onSetupFailed("Couldn't attach the barcode reader. Try again.")
+            return
+        }
 
         // Atomic configuration: add input + output inside a single
         // begin/commit pair so the session reconfigures once. The v2
