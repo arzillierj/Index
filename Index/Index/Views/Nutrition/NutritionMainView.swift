@@ -12,11 +12,13 @@ struct NutritionMainView: View {
     @Environment(ProfileService.self) private var profileService
 
     @Query(
-        filter: #Predicate<NutritionEntry> { !$0.deletedFromIndex },
         sort: \NutritionEntry.date,
         order: .reverse
     )
     private var allEntries: [NutritionEntry]
+    // NutritionEntry.deletedFromIndex is deprecated — the swipe path
+    // hard-deletes via context.delete(entry), so there are no
+    // tombstoned rows for the predicate to filter out.
 
     @Query(
         filter: #Predicate<WeightEntry> { !$0.deletedFromIndex },

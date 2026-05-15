@@ -17,7 +17,14 @@ enum MealType: String, CaseIterable, Codable, Identifiable {
 }
 
 enum NutritionSource: String, CaseIterable, Codable {
-    case manual, barcode, photo
+    case manual, barcode
+    // DEPRECATED: 2026-05-15 — photo flow cut from v1 (see CLAUDE.md
+    // "Things explicitly NOT in v1"). No code path ever produced a
+    // NutritionEntry with source = .photo, but the case stays in the
+    // enum so any persisted row that somehow reads back as `.photo`
+    // still decodes (rather than falling through to the .manual
+    // fallback in `var source` which would be silently misleading).
+    case photo
 }
 
 @Model
@@ -30,9 +37,17 @@ final class NutritionEntry {
     var fat: Double = 0
     var mealTypeRaw: String = MealType.snack.rawValue
     var sourceRaw: String = NutritionSource.manual.rawValue
-    /// True when the entry was created via the photo-to-macros flow. UI
-    /// surfaces a "Photo estimate" badge for these rows.
+    // DEPRECATED: 2026-05-15 — photo flow cut from v1; no code path
+    // writes this field. Schema rules forbid deletion (lightweight
+    // migration would otherwise drop the column on existing rows).
+    // Field stays; nothing reads or writes it.
     var photoEstimated: Bool = false
+    // DEPRECATED: 2026-05-15 — NutritionEntry never mirrored to HK so
+    // the soft-delete-as-tombstone contract that protects WeightEntry /
+    // WorkoutSession against HK re-import has nothing to protect here.
+    // The swipe path uses `context.delete(entry)` (hard delete);
+    // queries no longer filter on this field. Schema rules forbid
+    // deletion of the column itself.
     var deletedFromIndex: Bool = false
 
     init(

@@ -1,7 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(xcrun simctl *)",
+      "Bash(xcodebuild -showdestinations -project Index/Index.xcodeproj -scheme Index)",
+      "Bash(xcodebuild -version)",
+      "Read(//Applications/**)",
+      "Bash(DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -version)",
+      "Bash(DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project /Users/yannis/Index/Index/Index.xcodeproj -scheme Index -destination 'generic/platform=iOS Simulator' -configuration Debug -quiet build)",
+      "Bash(DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project /Users/yannis/Index/Index/Index.xcodeproj -scheme Index -destination 'generic/platform=iOS Simulator' -configuration Debug build)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(git push *)",
+      "Bash(DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project /Users/yannis/Index/Index/Index.xcodeproj -target Index -sdk iphonesimulator26.5 -configuration Debug clean build)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ],
     "additionalDirectories": [
       "/Users/yannis/Dashboard"

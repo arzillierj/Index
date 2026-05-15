@@ -61,7 +61,10 @@ enum BrainService {
     // MARK: - Fitness
 
     /// First matching rule wins. Workouts are filtered to the relevant week
-    /// window by the caller (filter out `deletedFromIndex` rows there too).
+    /// window by the caller (`@Query` predicate already excludes
+    /// `deletedFromIndex` for the HK-mirrored types — WorkoutSession,
+    /// DailyHealthMetrics and WeightEntry. NutritionEntry's
+    /// deletedFromIndex is deprecated.).
     static func fitnessInsight(
         thisWeekWorkouts: [WorkoutSession],
         lastWeekWorkouts: [WorkoutSession],
@@ -192,7 +195,7 @@ enum BrainService {
             guard let day = cal.date(byAdding: .day, value: -offset, to: cal.startOfDay(for: now)),
                   let dayEnd = cal.date(byAdding: .day, value: 1, to: day) else { continue }
             let total = recentEntries
-                .filter { !$0.deletedFromIndex && $0.date >= day && $0.date < dayEnd }
+                .filter { $0.date >= day && $0.date < dayEnd }
                 .reduce(0.0) { $0 + $1.protein }
             if total < targets.proteinBase * 0.8 { lowDays += 1 }
         }
@@ -211,10 +214,9 @@ enum BrainService {
         let hour = cal.component(.hour, from: now)
         guard hour >= 8, hour <= 20 else { return nil }
         let lastToday = todayEntries
-            .filter { !$0.deletedFromIndex }
             .sorted(by: { $0.date < $1.date })
             .last
-        let last = lastToday ?? recentEntries.first(where: { !$0.deletedFromIndex })
+        let last = lastToday ?? recentEntries.first
         guard let last else { return nil }
         return now.timeIntervalSince(last.date) / 3600
     }

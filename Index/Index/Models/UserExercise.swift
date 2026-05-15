@@ -57,6 +57,8 @@ final class UserExercise {
     var kindRaw: String = ExerciseKind.free.rawValue
     var defaultRestSeconds: Int = 90
     var displayOrder: Int = 0
+    // DEPRECATED: 2026-05-15 — never read or written by any view or
+    // service. Field stays per the schema rules; no callers remain.
     var notes: String = ""
 
     init(

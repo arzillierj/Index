@@ -1,334 +1,277 @@
 import SwiftUI
 import AVFoundation
-import UIKit
 
-/// AVFoundation-backed scanner. SwiftUI owns the overlay chrome
-/// (viewfinder cutout, controls, flash, timeout hint); a UIKit
-/// preview controller owns the AVCaptureSession and metadata output.
-///
-/// Reports a detected barcode string to the caller exactly once via
-/// `onDetect`. The session is frozen on detection so the same code
-/// doesn't repeatedly fire while the result sheet animates in.
-///
-/// Cancel/permission-denied/decode paths all unwind through the parent
-/// — this view never tries to dismiss itself.
+// MARK: - Public SwiftUI wrapper
+//
+// Verbatim port of the v0 scanner from
+//   /Users/yannis/Dashboard/Dashboard/Dashboard/Views/Nutrition/BarcodeScannerView.swift
+// Same class hierarchy, same AVCaptureSession setup sequence, same
+// delegate flow. The v2 reimplementation introduced rectOfInterest,
+// focus/exposure tuning, a custom session preset, and a per-frame
+// rectOfInterest re-application — all of which combined to break
+// detection. v0 ships with none of that and scans first try on a
+// real device.
+//
+// Only intentional v2 changes vs the v0 file:
+//   - `onScan` callback renamed to `onDetect` to match the v2
+//     NutritionMainView contract (everything else about the contract
+//     is identical: barcode string in, void out).
+//   - metadataObjectTypes extended from `[.ean8, .ean13, .upce]` to
+//     also include `.itf14` and `.code128` per Phase 6 spec.
+//     `.upca` is auto-delivered as `.ean13` with a leading zero — no
+//     separate constant exists on AVMetadataObject.ObjectType.
+//   - Theme.Colors references swapped for SwiftUI defaults
+//     (`.tint` / `.accentColor`) since v2 has no Theme module.
+
 struct BarcodeScannerView: View {
     let onDetect: (String) -> Void
     let onCancel: () -> Void
 
-    @State private var detected = false
-    @State private var torchOn = false
-    @State private var flashOpacity: Double = 0
-    @State private var showTimeoutHint = false
-    @State private var permissionDenied = false
-
-    private let viewfinderSize = CGSize(width: 280, height: 180)
-
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Color.black.ignoresSafeArea()
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-                BarcodeScannerRepresentable(
-                    interestRect: centeredRect(in: geo.size),
-                    torchOn: torchOn,
-                    freeze: detected,
-                    onCode: handleDetect,
-                    onPermissionDenied: { permissionDenied = true }
-                )
+            CameraPreviewRepresentable(onScan: onDetect)
                 .ignoresSafeArea()
 
-                viewfinderCutout
-                viewfinderBorder
-                flashLayer
-
-                VStack {
-                    controls
-                    Spacer()
-                    if showTimeoutHint && !detected {
-                        hintBanner
-                    }
-                    Spacer().frame(height: 48)
-                }
-            }
-            .overlay { if permissionDenied { permissionDeniedOverlay } }
+            ScannerOverlayView(onCancel: onCancel)
         }
-        .task {
-            // 15-second hint: only fires if nothing has been detected.
-            try? await Task.sleep(for: .seconds(15))
-            if !detected { showTimeoutHint = true }
-        }
-    }
-
-    // MARK: - Overlay layers
-
-    private var viewfinderCutout: some View {
-        ZStack {
-            Color.black.opacity(0.5)
-            Rectangle()
-                .frame(width: viewfinderSize.width, height: viewfinderSize.height)
-                .blendMode(.destinationOut)
-        }
-        .compositingGroup()
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-    }
-
-    private var viewfinderBorder: some View {
-        Rectangle()
-            .stroke(Color.white, lineWidth: 2)
-            .frame(width: viewfinderSize.width, height: viewfinderSize.height)
-            .allowsHitTesting(false)
-    }
-
-    private var flashLayer: some View {
-        Color.white
-            .opacity(flashOpacity)
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-    }
-
-    private var controls: some View {
-        HStack {
-            Button {
-                onCancel()
-            } label: {
-                Text("Cancel")
-                    .foregroundStyle(.white)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 14)
-                    .background(.ultraThinMaterial, in: Capsule())
-            }
-            Spacer()
-            Button {
-                torchOn.toggle()
-            } label: {
-                Image(systemName: torchOn ? "bolt.fill" : "bolt.slash")
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .padding(10)
-                    .background(.ultraThinMaterial, in: Circle())
-            }
-        }
-        .padding(.horizontal)
-        .padding(.top, 12)
-    }
-
-    private var hintBanner: some View {
-        Text("Try holding the phone closer or move to better light.")
-            .multilineTextAlignment(.center)
-            .font(.subheadline)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.black.opacity(0.6))
-            .clipShape(.rect(cornerRadius: 10))
-            .padding(.horizontal, 24)
-    }
-
-    private var permissionDeniedOverlay: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "camera.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(.white.opacity(0.7))
-            Text("Camera access needed")
-                .font(.headline)
-                .foregroundStyle(.white)
-            Text("Enable camera access in Settings to scan barcodes.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.75))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            Button("Close") { onCancel() }
-                .foregroundStyle(.white)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 22)
-                .background(.ultraThinMaterial, in: Capsule())
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.92).ignoresSafeArea())
-    }
-
-    // MARK: - Helpers
-
-    private func centeredRect(in size: CGSize) -> CGRect {
-        CGRect(
-            x: (size.width - viewfinderSize.width) / 2,
-            y: (size.height - viewfinderSize.height) / 2,
-            width: viewfinderSize.width,
-            height: viewfinderSize.height
-        )
-    }
-
-    private func handleDetect(_ code: String) {
-        guard !detected else { return }
-        detected = true
-
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-
-        withAnimation(.easeOut(duration: 0.15)) { flashOpacity = 0.55 }
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
-            withAnimation(.easeIn(duration: 0.2)) { flashOpacity = 0 }
-            try? await Task.sleep(for: .milliseconds(300))
-            onDetect(code)
-        }
+        .preferredColorScheme(.dark)
+        .statusBarHidden()
     }
 }
 
-// MARK: - UIKit preview
+// MARK: - Camera preview (UIViewControllerRepresentable)
 
-struct BarcodeScannerRepresentable: UIViewControllerRepresentable {
-    let interestRect: CGRect
-    let torchOn: Bool
-    let freeze: Bool
-    let onCode: (String) -> Void
-    let onPermissionDenied: () -> Void
+private struct CameraPreviewRepresentable: UIViewControllerRepresentable {
+    let onScan: (String) -> Void
 
-    func makeUIViewController(context: Context) -> BarcodeScannerPreviewController {
-        let vc = BarcodeScannerPreviewController()
-        vc.onDetect = onCode
-        vc.onPermissionDenied = onPermissionDenied
-        return vc
+    func makeUIViewController(context: Context) -> ScannerViewController {
+        ScannerViewController(onScan: onScan)
     }
 
-    func updateUIViewController(_ vc: BarcodeScannerPreviewController, context: Context) {
-        vc.setInterestRect(interestRect)
-        vc.setTorch(on: torchOn)
-        if freeze { vc.freeze() }
-    }
+    func updateUIViewController(_ vc: ScannerViewController, context: Context) {}
 }
 
-/// Owns the AVCaptureSession. Session start/stop runs on a dedicated
-/// dispatch queue (AVFoundation hot path) while UI work stays on the
-/// main actor.
-///
-/// UPC-A note: there is no `.upca` constant on AVMetadataObject.ObjectType.
-/// UPC-A codes (12-digit) are auto-delivered as `.ean13` with a leading
-/// "0" by AVFoundation, so enabling `.ean13` catches both. Open Food
-/// Facts accepts the EAN-13 form for UPC-A products too.
-final class BarcodeScannerPreviewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
-    var onDetect: ((String) -> Void)?
-    var onPermissionDenied: (() -> Void)?
+// MARK: - Scanner view controller
 
+final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+    private let onScan: (String) -> Void
     nonisolated(unsafe) private let session = AVCaptureSession()
-    private let sessionQueue = DispatchQueue(label: "com.yanni.Index.BarcodeScannerSessionQueue")
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private let metadataOutput = AVCaptureMetadataOutput()
-    private var isFrozen = false
-    private var pendingInterestRect: CGRect = .zero
+    private var hasScanned = false
+
+    init(onScan: @escaping (String) -> Void) {
+        self.onScan = onScan
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        requestAccess()
+        requestCameraAccess()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer?.frame = view.bounds
-        applyInterestRect()
     }
 
-    private func requestAccess() {
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if session.isRunning { session.stopRunning() }
+    }
+
+    private func requestCameraAccess() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             setupSession()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                DispatchQueue.main.async {
-                    if granted {
-                        self?.setupSession()
-                    } else {
-                        self?.onPermissionDenied?()
-                    }
-                }
+                if granted { DispatchQueue.main.async { self?.setupSession() } }
             }
-        case .denied, .restricted:
-            onPermissionDenied?()
-        @unknown default:
-            onPermissionDenied?()
+        default:
+            showPermissionDenied()
         }
     }
 
     private func setupSession() {
         guard let device = AVCaptureDevice.default(for: .video),
-              let input = try? AVCaptureDeviceInput(device: device) else {
-            // Simulator path (no camera) or a device with no rear camera —
-            // fall through to a black preview and the timeout hint will
-            // eventually fire.
-            return
-        }
+              let input = try? AVCaptureDeviceInput(device: device),
+              session.canAddInput(input)
+        else { return }
 
-        if device.isFocusModeSupported(.continuousAutoFocus) {
-            try? device.lockForConfiguration()
-            device.focusMode = .continuousAutoFocus
-            device.unlockForConfiguration()
-        }
+        let output = AVCaptureMetadataOutput()
+        guard session.canAddOutput(output) else { return }
 
-        if session.canAddInput(input) {
-            session.addInput(input)
-        }
-        if session.canAddOutput(metadataOutput) {
-            session.addOutput(metadataOutput)
-            metadataOutput.setMetadataObjectsDelegate(self, queue: .main)
-            metadataOutput.metadataObjectTypes = [.ean13, .ean8, .upce, .itf14, .code128]
-        }
+        // Atomic configuration: add input + output inside a single
+        // begin/commit pair so the session reconfigures once. The v2
+        // attempt skipped this wrapper, which can race with the
+        // capture device's internal state during initial setup.
+        session.beginConfiguration()
+        session.addInput(input)
+        session.addOutput(output)
+        session.commitConfiguration()
 
-        let pl = AVCaptureVideoPreviewLayer(session: session)
-        pl.videoGravity = .resizeAspectFill
-        pl.frame = view.bounds
-        view.layer.addSublayer(pl)
-        previewLayer = pl
+        // Order matters: addOutput → setDelegate → metadataObjectTypes.
+        // Setting types before addOutput silently drops them.
+        output.setMetadataObjectsDelegate(self, queue: .main)
+        output.metadataObjectTypes = [.ean8, .ean13, .upce, .itf14, .code128]
 
-        applyInterestRect()
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.frame = view.bounds
+        layer.videoGravity = .resizeAspectFill
+        view.layer.insertSublayer(layer, at: 0)
+        previewLayer = layer
 
-        sessionQueue.async { [session] in
-            session.startRunning()
-        }
-    }
-
-    func setInterestRect(_ rect: CGRect) {
-        pendingInterestRect = rect
-        applyInterestRect()
-    }
-
-    /// Convert the SwiftUI viewfinder rect (view coordinates) into the
-    /// normalized metadata-output coordinate space. The preview layer
-    /// is the authority on the mapping (it knows the camera orientation
-    /// + aspect-fill cropping).
-    private func applyInterestRect() {
-        guard let pl = previewLayer, pendingInterestRect != .zero else { return }
-        let converted = pl.metadataOutputRectConverted(fromLayerRect: pendingInterestRect)
-        metadataOutput.rectOfInterest = converted
-    }
-
-    func setTorch(on: Bool) {
-        guard let device = AVCaptureDevice.default(for: .video),
-              device.hasTorch else { return }
-        try? device.lockForConfiguration()
-        device.torchMode = on ? .on : .off
-        device.unlockForConfiguration()
-    }
-
-    func freeze() {
-        guard !isFrozen else { return }
-        isFrozen = true
-        sessionQueue.async { [session] in
-            session.stopRunning()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.session.startRunning()
         }
     }
 
     func metadataOutput(
         _ output: AVCaptureMetadataOutput,
-        didOutput metadataObjects: [AVMetadataObject],
+        didOutput objects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
-        guard !isFrozen,
-              let first = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-              let code = first.stringValue,
-              !code.isEmpty else { return }
-        onDetect?(code)
+        guard !hasScanned,
+              let obj = objects.first as? AVMetadataMachineReadableCodeObject,
+              let code = obj.stringValue
+        else { return }
+        hasScanned = true
+        session.stopRunning()
+        onScan(code)
+    }
+
+    private func showPermissionDenied() {
+        DispatchQueue.main.async {
+            let label = UILabel()
+            label.text = "Camera access denied.\nEnable it in Settings."
+            label.textColor = .secondaryLabel
+            label.numberOfLines = 0
+            label.textAlignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            self.view.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: self.view.centerYAnchor),
+                label.leadingAnchor.constraint(equalTo: self.view.leadingAnchor, constant: 32),
+                label.trailingAnchor.constraint(equalTo: self.view.trailingAnchor, constant: -32),
+            ])
+        }
+    }
+}
+
+// MARK: - SwiftUI overlay
+
+private struct ScannerOverlayView: View {
+    let onCancel: () -> Void
+    @State private var lineOffset: CGFloat = -60
+
+    private let frameW: CGFloat = 280
+    private let frameH: CGFloat = 140
+
+    var body: some View {
+        ZStack {
+            // Dark vignette with viewfinder cutout
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .mask(
+                    Rectangle()
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .frame(width: frameW, height: frameH)
+                                .blendMode(.destinationOut)
+                        )
+                        .compositingGroup()
+                )
+
+            // Scan frame
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .frame(width: frameW, height: frameH)
+
+            // Corner brackets
+            ScanCorners(size: frameW, height: frameH)
+
+            // Moving scan line
+            RoundedRectangle(cornerRadius: 1)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, .accentColor, .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: frameW - 16, height: 2)
+                .offset(y: lineOffset)
+                .animation(
+                    .easeInOut(duration: 1.6).repeatForever(autoreverses: true),
+                    value: lineOffset
+                )
+                .onAppear { lineOffset = 60 }
+
+            // UI chrome
+            VStack {
+                HStack {
+                    Button(action: onCancel) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .padding(20)
+                    Spacer()
+                }
+
+                Spacer()
+
+                Text("Scan a barcode")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.bottom, 8)
+
+                Text("EAN-8 · EAN-13 · UPC-A · UPC-E · ITF-14 · Code 128")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .padding(.bottom, 56)
+            }
+        }
+    }
+}
+
+// MARK: - Corner bracket decoration
+
+private struct ScanCorners: View {
+    let size: CGFloat
+    let height: CGFloat
+    private let len: CGFloat = 20
+    private let thick: CGFloat = 3
+
+    var body: some View {
+        ZStack {
+            // Use enumerated indices for ID — the v0 file keyed by
+            // `\.0`, but two of the four corners share the same x
+            // multiplier (-1 or 1) so SwiftUI emitted "ID -1.0
+            // occurs multiple times" at runtime.
+            ForEach(Array(corners.enumerated()), id: \.offset) { _, corner in
+                let xMul = corner.0
+                let yMul = corner.1
+                Path { path in
+                    let x = xMul * (size / 2 - 6)
+                    let y = yMul * (height / 2 - 6)
+                    path.move(to: CGPoint(x: x, y: y - yMul * len))
+                    path.addLine(to: CGPoint(x: x, y: y))
+                    path.addLine(to: CGPoint(x: x - xMul * len, y: y))
+                }
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: thick, lineCap: .round))
+            }
+        }
+        .frame(width: size, height: height)
+    }
+
+    private var corners: [(CGFloat, CGFloat)] {
+        [(-1, -1), (1, -1), (-1, 1), (1, 1)]
     }
 }
