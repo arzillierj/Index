@@ -24,6 +24,7 @@ struct BodyView: View {
     private var dailyMetrics: [DailyHealthMetrics]
 
     @State private var showLogSheet = false
+    @State private var showSettings = false
     @State private var selectedEntry: WeightEntry? = nil
 
     private var profile: Profile? { profileService.activeProfile }
@@ -43,10 +44,19 @@ struct BodyView: View {
         .navigationTitle("Body")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showLogSheet = true
-                } label: {
-                    Text("Log").fontWeight(.semibold)
+                HStack(spacing: 14) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        showLogSheet = true
+                    } label: {
+                        Text("Log").fontWeight(.semibold)
+                    }
                 }
             }
         }
@@ -55,6 +65,9 @@ struct BodyView: View {
         }
         .sheet(item: $selectedEntry) { entry in
             WeightEntryDetailSheet(entry: entry)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
     }
 

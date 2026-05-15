@@ -108,4 +108,129 @@ final class ProfileService {
         context.insert(profile)
         activeProfile = profile
     }
+
+    // MARK: - Phase 7 Settings update methods
+    //
+    // Each method mutates a single field on `activeProfile` and saves
+    // explicitly. SettingsView surfaces save failures as a non-blocking
+    // banner per the audit transactional-save discipline (H6 / H12).
+    // Each throws on save failure so callers can decide whether to keep
+    // the sheet open or dismiss.
+
+    enum ProfileUpdateError: Error {
+        case noActiveProfile
+        case saveFailed(Error)
+    }
+
+    private func mutate(
+        in context: ModelContext,
+        _ change: (Profile) -> Void
+    ) throws {
+        guard let p = activeProfile else { throw ProfileUpdateError.noActiveProfile }
+        change(p)
+        do { try context.save() }
+        catch { throw ProfileUpdateError.saveFailed(error) }
+    }
+
+    func updateName(_ name: String, in context: ModelContext) throws {
+        try mutate(in: context) { $0.name = name.trimmingCharacters(in: .whitespaces) }
+    }
+
+    func updateAge(_ age: Int, in context: ModelContext) throws {
+        try mutate(in: context) { $0.age = age }
+    }
+
+    func updateHeight(_ heightCm: Double, in context: ModelContext) throws {
+        try mutate(in: context) { $0.heightCm = heightCm }
+    }
+
+    func updateSex(_ sex: Sex, in context: ModelContext) throws {
+        try mutate(in: context) { $0.sex = sex }
+    }
+
+    func updateGoal(_ goal: Goal, in context: ModelContext) throws {
+        try mutate(in: context) { $0.goal = goal }
+    }
+
+    func updateCalorieAdjustment(_ kcal: Double, in context: ModelContext) throws {
+        try mutate(in: context) { $0.calorieAdjustmentKcal = kcal }
+    }
+
+    func updateProteinTarget(_ grams: Double, in context: ModelContext) throws {
+        try mutate(in: context) { $0.proteinTargetG = grams }
+    }
+
+    func updateTargetWeight(_ kg: Double, hasTarget: Bool, in context: ModelContext) throws {
+        try mutate(in: context) {
+            $0.targetWeightKg = kg
+            $0.hasTargetWeight = hasTarget
+        }
+    }
+
+    func setModuleEnabled(_ module: Module, enabled: Bool, in context: ModelContext) throws {
+        try mutate(in: context) {
+            var modules = $0.enabledModules
+            if enabled { modules.insert(module) } else { modules.remove(module) }
+            $0.enabledModules = modules
+        }
+    }
+
+    /// Phase 7c — wipes all per-user logged data (weights, workouts,
+    /// strength sessions, nutrition entries, daily health metrics,
+    /// food cache). PRESERVES `Profile` AND the `UserExercise`
+    /// library (so the user keeps their exercise picks). HK
+    /// previously-imported rows return on next observer fire if HK
+    /// auth is still granted (UUID dedup keeps re-imports from
+    /// duplicating).
+    func resetAllData(in context: ModelContext) throws {
+        do {
+            try context.delete(model: WeightEntry.self)
+            try context.delete(model: WorkoutSession.self)
+            try context.delete(model: StrengthSession.self)
+            // ExercisePerformance + SetEntry cascade-delete with
+            // their parent StrengthSession (cascade rule on the
+            // @Relationship), so we don't have to enumerate them.
+            try context.delete(model: NutritionEntry.self)
+            try context.delete(model: DailyHealthMetrics.self)
+            try context.delete(model: FoodProduct.self)
+            try context.save()
+        } catch {
+            throw ProfileUpdateError.saveFailed(error)
+        }
+    }
+
+    /// Phase 7c — full account wipe. Removes everything including
+    /// `Profile` and the `UserExercise` library, signs out of the
+    /// identity provider, and clears `activeProfile`. ContentView
+    /// observes the nil profile and routes back to OnboardingView
+    /// for a fresh start.
+    func deleteAccount(in context: ModelContext) async throws {
+        do {
+            try context.delete(model: WeightEntry.self)
+            try context.delete(model: WorkoutSession.self)
+            try context.delete(model: StrengthSession.self)
+            try context.delete(model: NutritionEntry.self)
+            try context.delete(model: DailyHealthMetrics.self)
+            try context.delete(model: FoodProduct.self)
+            try context.delete(model: UserExercise.self)
+            try context.delete(model: Profile.self)
+            try context.save()
+        } catch {
+            throw ProfileUpdateError.saveFailed(error)
+        }
+        await identity.signOut()
+        activeProfile = nil
+        orphanProfileForMigration = nil
+    }
+
+    /// Phase 7c — sign out without wiping data. Clears
+    /// IdentityService state; the existing Profile remains on disk
+    /// (becomes orphan-eligible on the next sign-in if a different
+    /// userId comes back). ContentView observes the nil profile and
+    /// routes to OnboardingView.
+    func signOut() async {
+        await identity.signOut()
+        activeProfile = nil
+        orphanProfileForMigration = nil
+    }
 }

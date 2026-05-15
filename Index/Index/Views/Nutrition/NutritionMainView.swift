@@ -35,6 +35,7 @@ struct NutritionMainView: View {
     private var workouts: [WorkoutSession]
 
     @State private var showScanner = false
+    @State private var showSettings = false
     @State private var manualEntryPrefill: ManualEntryPrefill? = nil
     @State private var selectedEntry: NutritionEntry? = nil
     @State private var editTarget: NutritionEntry? = nil
@@ -86,7 +87,23 @@ struct NutritionMainView: View {
         // barcode / Enter manually) — duplicating either as a toolbar
         // shortcut creates a "which one does it open?" ambiguity. The
         // two on-screen buttons are anchored above the daily log so
-        // they remain thumb-reachable without scrolling.
+        // they remain thumb-reachable without scrolling. Phase 7
+        // adds the gear icon for Settings — top-right alone since
+        // there's no Log button competing for the slot.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
         .sheet(item: $manualEntryPrefill) { prefill in
             LogMealManualSheet(
                 editing: nil,

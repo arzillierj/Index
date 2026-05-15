@@ -31,6 +31,7 @@ struct FitnessMainView: View {
     @State private var showLogCycling = false
     @State private var logOtherPreset: WorkoutType? = nil
     @State private var showActiveStrength = false
+    @State private var showSettings = false
 
     private var profile: Profile? { profileService.activeProfile }
 
@@ -50,12 +51,24 @@ struct FitnessMainView: View {
         .navigationTitle("Fitness")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showLogSheet = true
-                } label: {
-                    Text("Log").fontWeight(.semibold)
+                HStack(spacing: 14) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        showLogSheet = true
+                    } label: {
+                        Text("Log").fontWeight(.semibold)
+                    }
                 }
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
         .sheet(isPresented: $showLogSheet) {
             LogActivitySheet(onSelect: handleActivityChoice)

@@ -45,8 +45,30 @@ final class HealthKitService {
     @ObservationIgnored private let store = HKHealthStore()
     @ObservationIgnored private var workoutAnchor: HKQueryAnchor? = nil
 
+    // Phase 7 — observer-stop API. Retain references so a Settings
+    // toggle-off can call `store.stop(query:)`. Per audit DQ10:
+    // stopping the observer halts new HK delivery but does NOT
+    // delete previously-imported rows.
+    @ObservationIgnored private var bodyMassObserverQuery: HKObserverQuery? = nil
+    @ObservationIgnored private var workoutAnchoredQuery: HKAnchoredObjectQuery? = nil
+
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
+    }
+
+    // MARK: - Toggle helpers
+
+    /// Static read of the workout import toggle. Defaults to ON when
+    /// the key is absent (first launch + pre-Phase-7 installs).
+    static var workoutImportEnabled: Bool {
+        UserDefaults.standard.object(forKey: importWorkoutsKey) as? Bool ?? true
+    }
+
+    /// Static read of the weight import toggle (Phase 7 addition).
+    /// Same default-ON shape so existing installs keep weight mirror
+    /// behavior unchanged.
+    static var weightImportEnabled: Bool {
+        UserDefaults.standard.object(forKey: importWeightKey) as? Bool ?? true
     }
 
     // MARK: - Capability check
@@ -109,7 +131,10 @@ final class HealthKitService {
 
     /// Fan-out triggered after first auth grant or on every cold start
     /// once authorized. Caller is responsible for the .sharingAuthorized
-    /// check.
+    /// check. The two `startObserving*` calls are gated on the Phase 7
+    /// import toggles — when either toggle is off the observer is not
+    /// armed and the corresponding `store.enableBackgroundDelivery`
+    /// is also skipped.
     private func bootstrap() async {
         await fetchAll()
         await fetchDailyHealth()
@@ -117,15 +142,22 @@ final class HealthKitService {
         // One-time historical backfill — covers everything from January 1
         // of the current year up to now, regardless of the anchored
         // observer's state. Without this, the user only sees workouts
-        // *after* the moment they granted HK auth.
-        if !UserDefaults.standard.bool(forKey: Self.didBackfillKey) {
+        // *after* the moment they granted HK auth. Gated on the
+        // workout import toggle so a user who finishes onboarding with
+        // workouts disabled doesn't get a surprise backfill.
+        if Self.workoutImportEnabled,
+           !UserDefaults.standard.bool(forKey: Self.didBackfillKey) {
             await importHistoricalWorkouts(since: Self.startOfCurrentYear())
             UserDefaults.standard.set(true, forKey: Self.didBackfillKey)
         }
 
-        await importWorkouts()
-        startObservingBodyMass()
-        startObservingWorkouts()
+        if Self.workoutImportEnabled {
+            await importWorkouts()
+            startObservingWorkouts()
+        }
+        if Self.weightImportEnabled {
+            startObservingBodyMass()
+        }
     }
 
     private static func startOfCurrentYear() -> Date {
@@ -160,6 +192,9 @@ final class HealthKitService {
 
     func startObservingBodyMass() {
         guard Self.isAvailable else { return }
+        // Idempotent — multiple calls (e.g. toggle-on after toggle-off
+        // during the same session) shouldn't stack observers.
+        guard bodyMassObserverQuery == nil else { return }
         let type = HKQuantityType(.bodyMass)
         let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, _, error in
             guard error == nil else { return }
@@ -169,6 +204,17 @@ final class HealthKitService {
         }
         store.execute(query)
         store.enableBackgroundDelivery(for: type, frequency: .immediate) { _, _ in }
+        bodyMassObserverQuery = query
+    }
+
+    /// Phase 7 / audit DQ10. Stops new HK weight delivery WITHOUT
+    /// deleting any previously-imported WeightEntry rows. Called when
+    /// the user toggles "Sync weight" off in Settings.
+    func stopBodyMassObserver() {
+        guard let query = bodyMassObserverQuery else { return }
+        store.stop(query)
+        store.disableBackgroundDelivery(for: HKQuantityType(.bodyMass)) { _, _ in }
+        bodyMassObserverQuery = nil
     }
 
     /// Combines bodyMass + bodyFatPercentage + leanBodyMass samples from
@@ -350,6 +396,8 @@ final class HealthKitService {
 
     func startObservingWorkouts() {
         guard Self.isAvailable else { return }
+        // Idempotent — see startObservingBodyMass.
+        guard workoutAnchoredQuery == nil else { return }
         workoutAnchor = loadWorkoutAnchor()
 
         // HKAnchoredObjectQuery's `resultsHandler` and `updateHandler` are
@@ -388,6 +436,18 @@ final class HealthKitService {
         )
         query.updateHandler = handler
         store.execute(query)
+        workoutAnchoredQuery = query
+    }
+
+    /// Phase 7 / audit DQ10. Stops the anchored workout observer.
+    /// New Watch workouts won't auto-import while stopped; existing
+    /// WorkoutSession rows are preserved. The on-disk anchor is left
+    /// at its last value so re-enabling resumes from there (no
+    /// duplicate processing thanks to UUID dedup).
+    func stopWorkoutObserver() {
+        guard let query = workoutAnchoredQuery else { return }
+        store.stop(query)
+        workoutAnchoredQuery = nil
     }
 
     private func fetchHKWorkouts(since cutoff: Date) async -> [HKWorkout] {
@@ -654,6 +714,7 @@ final class HealthKitService {
     // MARK: - UserDefaults keys
 
     static let importWorkoutsKey = "hk_import_workouts"
+    static let importWeightKey   = "hk_import_weight"
     static let lastWorkoutSyncKey = "hk_last_workout_sync"
     static let workoutAnchorKey = "hk_workout_anchor"
     static let didBackfillKey = "didHistoricalBackfill"
