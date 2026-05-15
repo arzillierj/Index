@@ -46,6 +46,12 @@ struct OnboardingView: View {
     @State private var connectingHealth = false
     @FocusState private var focusedField: OnboardingField?
 
+    // Audit H13 — numeric validation ranges for the Continue gate.
+    // Without these, a user could type 0 cm height or 0 kg target
+    // and propagate the garbage into MetricsEngine downstream.
+    private static let heightRangeCm:       ClosedRange<Double> = 100...250
+    private static let targetWeightRangeKg: ClosedRange<Double> = 30...300
+
     private var totalVisibleSteps: Int {
         draft.enabledModules.contains(.fitness) ? 8 : 7
     }
@@ -153,6 +159,18 @@ struct OnboardingView: View {
         switch step {
         case 1: !signingIn
         case 3: !draft.name.trimmingCharacters(in: .whitespaces).isEmpty
+                && Self.heightRangeCm.contains(draft.heightCm)
+        case 5:
+            // Target-weight is optional unless `hasTargetWeight` is on;
+            // if on, the value must fall in the sane range.
+            !draft.hasTargetWeight
+                || Self.targetWeightRangeKg.contains(draft.targetWeightKg)
+        case 7:
+            // DQ6: require at least one exercise when Fitness is on.
+            // Step 7 is only reachable when Fitness is on (advance()
+            // and goBack() skip it otherwise), so the count check
+            // applies unconditionally here.
+            draft.selectedExerciseIds.count >= 1
         case 8: !connectingHealth
         default: true
         }
@@ -227,12 +245,17 @@ struct OnboardingView: View {
                             .monospacedDigit()
                     }
                 }
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Height (cm)").font(.caption).foregroundStyle(.secondary)
                     TextField("175", value: $draft.heightCm, format: .number.precision(.fractionLength(0)))
                         .textFieldStyle(.roundedBorder)
                         .keyboardType(.numberPad)
                         .focused($focusedField, equals: .heightCm)
+                    if !Self.heightRangeCm.contains(draft.heightCm) {
+                        Text("Must be 100–250 cm")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                    }
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -296,20 +319,27 @@ struct OnboardingView: View {
                 Divider().padding(.vertical, 8)
                 Toggle("Set a target weight", isOn: $draft.hasTargetWeight)
                 if draft.hasTargetWeight {
-                    HStack {
-                        Text("Target weight")
-                        Spacer()
-                        TextField(
-                            "75",
-                            value: $draft.targetWeightKg,
-                            format: .number.precision(.fractionLength(1))
-                        )
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 100)
-                        .focused($focusedField, equals: .targetWeight)
-                        Text("kg").foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Target weight")
+                            Spacer()
+                            TextField(
+                                "75",
+                                value: $draft.targetWeightKg,
+                                format: .number.precision(.fractionLength(1))
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                            .focused($focusedField, equals: .targetWeight)
+                            Text("kg").foregroundStyle(.secondary)
+                        }
+                        if !Self.targetWeightRangeKg.contains(draft.targetWeightKg) {
+                            Text("Must be 30–300 kg")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
                     }
                 }
             }
