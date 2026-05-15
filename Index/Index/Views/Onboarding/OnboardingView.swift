@@ -92,7 +92,12 @@ struct OnboardingView: View {
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground).ignoresSafeArea())
+        .background(IndexPalette.Surface.background.ignoresSafeArea())
+        // No module context during onboarding — use Brand.primary
+        // for the tint cascade (Continue button, ProgressView, radio
+        // selection rings). All `IndexPalette.Brand.primary` references below
+        // inherit from this single root tint.
+        .tint(IndexPalette.Brand.primary)
     }
 
     // MARK: - Chrome
@@ -129,7 +134,7 @@ struct OnboardingView: View {
     private var footer: some View {
         VStack(spacing: 8) {
             if step == 1, let signInError {
-                Text(signInError).font(.caption).foregroundStyle(.red)
+                Text(signInError).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
             }
             Button(action: handlePrimary) {
                 Text(primaryLabel)
@@ -254,7 +259,7 @@ struct OnboardingView: View {
                     if !Self.heightRangeCm.contains(draft.heightCm) {
                         Text("Must be 100–250 cm")
                             .font(.caption2)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(IndexPalette.Semantic.error)
                     }
                 }
             }
@@ -338,7 +343,7 @@ struct OnboardingView: View {
                         if !Self.targetWeightRangeKg.contains(draft.targetWeightKg) {
                             Text("Must be 30–300 kg")
                                 .font(.caption2)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(IndexPalette.Semantic.error)
                         }
                     }
                 }
@@ -375,7 +380,7 @@ struct OnboardingView: View {
             }
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 10))
     }
 
@@ -391,7 +396,7 @@ struct OnboardingView: View {
                 Spacer()
                 Text("\(count) / 5 selected")
                     .font(.caption.monospaced())
-                    .foregroundStyle(count == 5 ? Color.accentColor : .secondary)
+                    .foregroundStyle(count == 5 ? IndexPalette.Brand.primary : .secondary)
             }
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
@@ -422,7 +427,7 @@ struct OnboardingView: View {
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(IndexPalette.Brand.primary)
                     }
                 }
                 Text(ex.kind.caption)
@@ -433,12 +438,12 @@ struct OnboardingView: View {
             .padding(12)
             .background(
                 isSelected
-                    ? Color.accentColor.opacity(0.12)
-                    : Color(.secondarySystemBackground)
+                    ? IndexPalette.Brand.primary.opacity(0.12)
+                    : IndexPalette.Surface.card
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? IndexPalette.Brand.primary : Color.clear, lineWidth: 1)
             )
             .clipShape(.rect(cornerRadius: 10))
             .opacity(isCapReached ? 0.4 : 1)
@@ -490,7 +495,7 @@ struct OnboardingView: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: selected ? "largecircle.fill.circle" : "circle")
                     .font(.title3)
-                    .foregroundStyle(selected ? Color.accentColor : .secondary)
+                    .foregroundStyle(selected ? IndexPalette.Brand.primary : .secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).foregroundStyle(.primary)
                     if let subtitle {
@@ -503,8 +508,8 @@ struct OnboardingView: View {
             .padding(.horizontal, 12)
             .background(
                 selected
-                    ? Color.accentColor.opacity(0.10)
-                    : Color(.secondarySystemBackground)
+                    ? IndexPalette.Brand.primary.opacity(0.10)
+                    : IndexPalette.Surface.card
             )
             .clipShape(.rect(cornerRadius: 10))
         }

@@ -75,7 +75,7 @@ struct StrengthSessionDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
-        .background(Color(.secondarySystemBackground))
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -118,7 +118,7 @@ struct StrengthSessionDetailView: View {
                     }
                 }
             }
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
         }
     }
@@ -135,7 +135,7 @@ struct StrengthSessionDetailView: View {
                 .font(.subheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
-                .background(Color(.secondarySystemBackground))
+                .background(IndexPalette.Surface.card)
                 .clipShape(.rect(cornerRadius: 12))
         }
     }
@@ -154,7 +154,7 @@ struct StrengthSessionDetailView: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.bordered)
-        .tint(.red)
+        .tint(IndexPalette.Action.destructive)
     }
 
     // MARK: - Actions

@@ -122,7 +122,7 @@ struct ExerciseDetailView: View {
                         }
                     }
                 }
-                .background(Color(.secondarySystemBackground))
+                .background(IndexPalette.Surface.card)
                 .clipShape(.rect(cornerRadius: 12))
             } else {
                 Text("No history yet. Log your first set below.")
@@ -130,7 +130,7 @@ struct ExerciseDetailView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(Color(.secondarySystemBackground))
+                    .background(IndexPalette.Surface.card)
                     .clipShape(.rect(cornerRadius: 12))
             }
         }
@@ -189,7 +189,7 @@ struct ExerciseDetailView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
-                .background(Color(.secondarySystemBackground))
+                .background(IndexPalette.Surface.card)
                 .clipShape(.rect(cornerRadius: 12))
         }
     }

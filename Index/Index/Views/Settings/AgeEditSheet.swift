@@ -38,7 +38,7 @@ struct AgeEditSheet: View {
                 draft = profileService.activeProfile?.age ?? 30
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     private func save() {

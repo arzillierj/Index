@@ -82,7 +82,7 @@ struct WeightEntryDetailSheet: View {
                         Text("kg").foregroundStyle(.secondary)
                     }
                     if let err = weightValidation.error {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                     DatePicker(
                         "Date",
@@ -104,7 +104,7 @@ struct WeightEntryDetailSheet: View {
                         Text("%").foregroundStyle(.secondary)
                     }
                     if let err = bodyFatValidation.error {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                     HStack {
                         TextField("Lean mass", text: $leanMassText)
@@ -113,7 +113,7 @@ struct WeightEntryDetailSheet: View {
                         Text("kg").foregroundStyle(.secondary)
                     }
                     if let err = leanMassValidation.error {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                 }
 

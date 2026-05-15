@@ -118,7 +118,7 @@ struct FitnessMainView: View {
             Spacer(minLength: 0)
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -140,7 +140,7 @@ struct FitnessMainView: View {
                 Spacer(minLength: 0)
             }
             .padding()
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
         }
     }
@@ -186,7 +186,7 @@ struct FitnessMainView: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 24)
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -198,7 +198,7 @@ struct FitnessMainView: View {
                 } label: {
                     feedRow(s)
                 }
-                .listRowBackground(Color(.secondarySystemBackground))
+                .listRowBackground(IndexPalette.Surface.card)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {

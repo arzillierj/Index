@@ -79,7 +79,7 @@ struct LogWeightSheet: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.yellow)
+                                    .foregroundStyle(IndexPalette.Semantic.warning)
                                 Text("Saved locally — Apple Health write failed.")
                                     .font(.subheadline.weight(.medium))
                             }
@@ -100,7 +100,7 @@ struct LogWeightSheet: View {
                         Text("kg").foregroundStyle(.secondary)
                     }
                     if let err = weightValidation.error {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                     DatePicker(
                         "Date",
@@ -118,7 +118,7 @@ struct LogWeightSheet: View {
                         Text("%").foregroundStyle(.secondary)
                     }
                     if let err = bodyFatValidation.error {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                     HStack {
                         TextField("Lean mass", text: $leanMassText)
@@ -127,7 +127,7 @@ struct LogWeightSheet: View {
                         Text("kg").foregroundStyle(.secondary)
                     }
                     if let err = leanMassValidation.error {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                 } header: {
                     Text("Body composition")

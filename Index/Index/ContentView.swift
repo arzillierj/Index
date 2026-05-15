@@ -80,7 +80,7 @@ struct ContentView: View {
             Spacer()
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 44))
-                .foregroundStyle(.yellow)
+                .foregroundStyle(IndexPalette.Semantic.warning)
             Text("Index can't open your local data.")
                 .font(.title3.weight(.semibold))
                 .multilineTextAlignment(.center)

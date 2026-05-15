@@ -43,7 +43,7 @@ struct NameEditSheet: View {
                 Task { @MainActor in focused = true }
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     private func save() {

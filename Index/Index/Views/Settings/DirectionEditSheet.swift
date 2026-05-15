@@ -42,7 +42,7 @@ struct DirectionEditSheet: View {
                 draft = profileService.activeProfile?.goal ?? .maintain
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     private func save() {

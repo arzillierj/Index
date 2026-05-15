@@ -28,9 +28,10 @@ struct WorkoutDetailView: View {
     @State private var isLoadingSwim = false
     @State private var showAutoSets = false
 
-    // Color palette (literal hex values per spec; not Apple system aliases)
-    private static let hrRed       = Color(red: 1.0,        green: 0x3B / 255, blue: 0x30 / 255)
-    private static let swolfTeal   = Color(red: 0x5A / 255, green: 0xC8 / 255, blue: 0xFA / 255)
+    // Data-viz colors come from IndexPalette so a future hex swap is one
+    // edit; heart-rate red and SWOLF teal are stable semantic mappings.
+    private static let hrRed     = IndexPalette.Data.heartRate
+    private static let swolfTeal = IndexPalette.Data.efficiency
 
     var body: some View {
         ScrollView {
@@ -175,7 +176,7 @@ struct WorkoutDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
-        .background(Color(.secondarySystemBackground))
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -208,7 +209,7 @@ struct WorkoutDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
         }
     }
@@ -280,7 +281,7 @@ struct WorkoutDetailView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 14)
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
             .contentShape(Rectangle())
         }
@@ -296,7 +297,7 @@ struct WorkoutDetailView: View {
                 .foregroundStyle(.secondary)
                 .tracking(0.8)
             ZStack {
-                Color(.secondarySystemBackground)
+                IndexPalette.Surface.card
                 VStack(spacing: 4) {
                     Image(systemName: "map")
                         .font(.title2)
@@ -327,7 +328,7 @@ struct WorkoutDetailView: View {
                 .font(.subheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
-                .background(Color(.secondarySystemBackground))
+                .background(IndexPalette.Surface.card)
                 .clipShape(.rect(cornerRadius: 12))
         }
     }
@@ -346,7 +347,7 @@ struct WorkoutDetailView: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.bordered)
-        .tint(.red)
+        .tint(IndexPalette.Action.destructive)
     }
 
     // MARK: - Formatters

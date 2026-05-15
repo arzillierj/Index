@@ -36,7 +36,7 @@ struct SexEditSheet: View {
                 draft = profileService.activeProfile?.sex ?? .male
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     private func save() {

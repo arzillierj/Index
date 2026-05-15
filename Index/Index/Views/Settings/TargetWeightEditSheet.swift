@@ -34,7 +34,7 @@ struct TargetWeightEditSheet: View {
             Form {
                 Section {
                     Toggle("Set a target weight", isOn: $hasTarget.animation())
-                        .tint(IndexAccent.green)
+                        .tint(IndexPalette.Module.settings)
                 }
                 if hasTarget {
                     Section("Target weight") {
@@ -45,7 +45,7 @@ struct TargetWeightEditSheet: View {
                             Text("kg").foregroundStyle(.secondary)
                         }
                         if let err = validation.error {
-                            Text(err).font(.caption).foregroundStyle(.red)
+                            Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                         }
                     }
                 }
@@ -73,7 +73,7 @@ struct TargetWeightEditSheet: View {
                 }
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     private func save() {

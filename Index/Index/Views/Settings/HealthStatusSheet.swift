@@ -54,12 +54,12 @@ struct HealthStatusSheet: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.title3)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(IndexPalette.Text.secondary)
                     }
                 }
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     private var connectionLabel: String {
@@ -67,7 +67,7 @@ struct HealthStatusSheet: View {
     }
 
     private var connectionColor: Color {
-        hkService.isAuthorized ? IndexAccent.green : .red
+        hkService.isAuthorized ? IndexPalette.Semantic.success : IndexPalette.Semantic.error
     }
 
     private var connectionFooter: String {

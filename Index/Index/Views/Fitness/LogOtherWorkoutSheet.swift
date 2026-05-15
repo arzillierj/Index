@@ -97,7 +97,7 @@ struct LogOtherWorkoutSheet: View {
                         Text("minutes").foregroundStyle(.secondary)
                     }
                     if let err = durationValidation.error {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                 }
 
@@ -120,7 +120,7 @@ struct LogOtherWorkoutSheet: View {
                             Text("km").foregroundStyle(.secondary)
                         }
                         if let err = distanceValidation.error {
-                            Text(err).font(.caption).foregroundStyle(.red)
+                            Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                         }
                     }
                     DatePicker(

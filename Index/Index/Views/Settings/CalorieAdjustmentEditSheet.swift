@@ -42,7 +42,7 @@ struct CalorieAdjustmentEditSheet: View {
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.tertiary)
                         }
-                        .tint(IndexAccent.green)
+                        .tint(IndexPalette.Module.settings)
                         Text(directionHint)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -64,7 +64,7 @@ struct CalorieAdjustmentEditSheet: View {
                 draft = profileService.activeProfile?.calorieAdjustmentKcal ?? 0
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     private var formattedValue: String {

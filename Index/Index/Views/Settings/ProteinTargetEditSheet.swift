@@ -32,7 +32,7 @@ struct ProteinTargetEditSheet: View {
                         Text("g/day").foregroundStyle(.secondary)
                     }
                     if let err = validation.error {
-                        Text(err).font(.caption).foregroundStyle(.red)
+                        Text(err).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                 }
             }
@@ -54,7 +54,7 @@ struct ProteinTargetEditSheet: View {
                 Task { @MainActor in focused = true }
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     private func save() {

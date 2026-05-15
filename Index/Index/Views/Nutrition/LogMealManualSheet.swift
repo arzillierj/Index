@@ -102,7 +102,7 @@ struct LogMealManualSheet: View {
                         Text("kcal").foregroundStyle(.secondary)
                     }
                     if let e = kcalValidation.error {
-                        Text(e).font(.caption).foregroundStyle(.red)
+                        Text(e).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                     HStack {
                         TextField("Protein", text: $proteinText)
@@ -111,7 +111,7 @@ struct LogMealManualSheet: View {
                         Text("g").foregroundStyle(.secondary)
                     }
                     if let e = proteinValidation.error {
-                        Text(e).font(.caption).foregroundStyle(.red)
+                        Text(e).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                     HStack {
                         TextField("Carbs", text: $carbsText)
@@ -120,7 +120,7 @@ struct LogMealManualSheet: View {
                         Text("g").foregroundStyle(.secondary)
                     }
                     if let e = carbsValidation.error {
-                        Text(e).font(.caption).foregroundStyle(.red)
+                        Text(e).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                     HStack {
                         TextField("Fat", text: $fatText)
@@ -129,7 +129,7 @@ struct LogMealManualSheet: View {
                         Text("g").foregroundStyle(.secondary)
                     }
                     if let e = fatValidation.error {
-                        Text(e).font(.caption).foregroundStyle(.red)
+                        Text(e).font(.caption).foregroundStyle(IndexPalette.Semantic.error)
                     }
                 }
 

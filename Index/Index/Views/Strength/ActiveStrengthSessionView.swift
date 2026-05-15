@@ -105,7 +105,7 @@ struct ActiveStrengthSessionView: View {
         let setsThisSession = thisSessionSets
         return NavigationStack {
             ZStack {
-                Color(.systemBackground).ignoresSafeArea()
+                IndexPalette.Surface.background.ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     topBar
@@ -320,7 +320,7 @@ struct ActiveStrengthSessionView: View {
                         }
                     }
                 }
-                .background(Color(.secondarySystemBackground))
+                .background(IndexPalette.Surface.card)
                 .clipShape(.rect(cornerRadius: 12))
             }
         }
@@ -367,7 +367,7 @@ struct ActiveStrengthSessionView: View {
             .padding(.horizontal)
             .padding(.vertical, 12)
         }
-        .background(Color(.systemBackground))
+        .background(IndexPalette.Surface.background)
     }
 
     // MARK: - Setup / lifecycle

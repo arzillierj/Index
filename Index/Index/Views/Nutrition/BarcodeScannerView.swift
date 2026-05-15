@@ -21,7 +21,7 @@ import AVFoundation
 //     `.upca` is auto-delivered as `.ean13` with a leading zero — no
 //     separate constant exists on AVMetadataObject.ObjectType.
 //   - Theme.Colors references swapped for SwiftUI defaults
-//     (`.tint` / `.accentColor`) since v2 has no Theme module.
+//     (`.tint` / `IndexPalette.Module.nutrition`) since v2 has no Theme module.
 
 struct BarcodeScannerView: View {
     let onDetect: (String) -> Void
@@ -253,7 +253,7 @@ private struct ScannerOverlayView: View {
 
             // Scan frame
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .strokeBorder(IndexPalette.Module.nutrition, lineWidth: 2)
                 .frame(width: frameW, height: frameH)
 
             // Corner brackets
@@ -263,7 +263,7 @@ private struct ScannerOverlayView: View {
             RoundedRectangle(cornerRadius: 1)
                 .fill(
                     LinearGradient(
-                        colors: [.clear, .accentColor, .clear],
+                        colors: [.clear, IndexPalette.Module.nutrition, .clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -328,7 +328,7 @@ private struct ScanCorners: View {
                     path.addLine(to: CGPoint(x: x, y: y))
                     path.addLine(to: CGPoint(x: x - xMul * len, y: y))
                 }
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: thick, lineCap: .round))
+                .stroke(IndexPalette.Module.nutrition, style: StrokeStyle(lineWidth: thick, lineCap: .round))
             }
         }
         .frame(width: size, height: height)

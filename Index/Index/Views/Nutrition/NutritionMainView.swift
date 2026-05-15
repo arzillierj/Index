@@ -174,7 +174,7 @@ struct NutritionMainView: View {
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
         }
         .buttonStyle(.plain)
@@ -241,7 +241,7 @@ struct NutritionMainView: View {
                 Spacer(minLength: 0)
             }
             .padding()
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
         }
     }
@@ -373,7 +373,7 @@ struct NutritionMainView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .frame(minHeight: 44)
-                .background(Capsule().fill(Color(.tertiarySystemFill)))
+                .background(Capsule().fill(IndexPalette.Surface.divider))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -450,7 +450,7 @@ struct NutritionMainView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
-        .background(Color(.secondarySystemBackground))
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -468,7 +468,7 @@ struct NutritionMainView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
-                    .background(Color(.secondarySystemBackground))
+                    .background(IndexPalette.Surface.card)
                     .clipShape(.rect(cornerRadius: 12))
             } else {
                 todayList
@@ -486,7 +486,7 @@ struct NutritionMainView: View {
                     row(entry: entry)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(Color(.secondarySystemBackground))
+                .listRowBackground(IndexPalette.Surface.card)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {

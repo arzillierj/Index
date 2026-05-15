@@ -236,7 +236,7 @@ struct BarcodeResultSheet: View {
                             .font(.subheadline)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(Capsule().fill(Color(.tertiarySystemFill)))
+                            .background(Capsule().fill(IndexPalette.Surface.divider))
                             .foregroundStyle(.primary)
                     }
                     .buttonStyle(.plain)

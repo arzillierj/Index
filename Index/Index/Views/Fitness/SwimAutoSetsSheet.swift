@@ -14,12 +14,13 @@ struct SwimAutoSetsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    // MARK: - Color palette (literal hex per spec; not Apple system aliases)
-
-    private static let blueDistance = Color(red: 0.0,        green: 0x7A / 255, blue: 1.0)
-    private static let yellowSwim   = Color(red: 1.0,        green: 0x95 / 255, blue: 0.0)
-    private static let yellowRest   = Color(red: 1.0,        green: 0x95 / 255, blue: 0.0).opacity(0.55)
-    private static let teal         = Color(red: 0x5A / 255, green: 0xC8 / 255, blue: 0xFA / 255)
+    // Data-viz colors come from IndexPalette so a future hex swap is one
+    // edit. Yellow rest reuses Data.time at reduced opacity for the
+    // "swim active vs. rest" pairing.
+    private static let blueDistance = IndexPalette.Data.distance
+    private static let yellowSwim   = IndexPalette.Data.time
+    private static let yellowRest   = IndexPalette.Data.time.opacity(0.55)
+    private static let teal         = IndexPalette.Data.efficiency
 
     var body: some View {
         NavigationStack {
@@ -39,7 +40,7 @@ struct SwimAutoSetsSheet: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.title3)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(IndexPalette.Text.secondary)
                     }
                 }
             }
@@ -91,7 +92,7 @@ struct SwimAutoSetsSheet: View {
             }
         }
         .padding(14)
-        .background(Color(.secondarySystemBackground))
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 14))
     }
 
@@ -123,7 +124,7 @@ struct SwimAutoSetsSheet: View {
                     }
                 }
             }
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
         }
     }

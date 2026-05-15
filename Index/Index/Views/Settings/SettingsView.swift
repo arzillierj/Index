@@ -6,12 +6,12 @@ import SwiftData
 /// Presented as a `.sheet` (NOT `.fullScreenCover`) so the dismiss
 /// gesture works automatically and the chrome feels lighter.
 ///
-/// Design language: this is the test bed for Index's `IndexAccent.green`
-/// (#4FA873) — used for active toggle states, selected segments,
-/// primary action buttons, and chevron tint on tappable rows.
-/// Everything else stays iOS-default neutral. The rest of the app is
-/// untouched until a broader design pass decides where else to apply
-/// the accent.
+/// Design language: tinted via `IndexPalette.Module.settings` (French
+/// Blue, same as Body) — used for active toggle states, selected
+/// segments, primary action buttons, and chevron tint on tappable rows.
+/// The X dismiss button in the toolbar explicitly overrides
+/// `foregroundStyle` to `IndexPalette.Text.secondary` so it doesn't
+/// inherit the tint cascade.
 ///
 /// All field edits open a sub-sheet (single field per sheet) that
 /// validates via `FieldValidation` and saves through a
@@ -87,7 +87,7 @@ struct SettingsView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.title3)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(IndexPalette.Text.secondary)
                     }
                 }
             }
@@ -95,7 +95,7 @@ struct SettingsView: View {
                 editSheet(for: route)
             }
         }
-        .tint(IndexAccent.green)
+        .tint(IndexPalette.Module.settings)
     }
 
     // MARK: - Save error banner
@@ -103,7 +103,7 @@ struct SettingsView: View {
     private func saveErrorBanner(_ msg: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.yellow)
+                .foregroundStyle(IndexPalette.Semantic.warning)
             Text(msg)
                 .font(.caption)
                 .foregroundStyle(.primary)
@@ -112,14 +112,14 @@ struct SettingsView: View {
                 .font(.caption.weight(.semibold))
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 
     private func infoBanner(_ msg: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(IndexAccent.green)
+                .foregroundStyle(IndexPalette.Semantic.success)
             Text(msg)
                 .font(.caption)
                 .foregroundStyle(.primary)
@@ -128,7 +128,7 @@ struct SettingsView: View {
                 .font(.caption.weight(.semibold))
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -211,7 +211,7 @@ struct SettingsView: View {
                 divider
                 moduleToggleRow(.nutrition)
             }
-            .background(Color(.secondarySystemBackground))
+            .background(IndexPalette.Surface.card)
             .clipShape(.rect(cornerRadius: 12))
             Text("Turning off a module hides it but keeps your data.")
                 .font(.caption2)
@@ -238,7 +238,7 @@ struct SettingsView: View {
             Toggle("", isOn: bound)
                 .labelsHidden()
                 .disabled(alwaysOn)
-                .tint(IndexAccent.green)
+                .tint(IndexPalette.Module.settings)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -260,7 +260,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(IndexAccent.green.opacity(0.7))
+                        .foregroundStyle(IndexPalette.Module.settings.opacity(0.7))
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 14)
@@ -305,7 +305,7 @@ struct SettingsView: View {
             Spacer()
             Toggle("", isOn: binding)
                 .labelsHidden()
-                .tint(IndexAccent.green)
+                .tint(IndexPalette.Module.settings)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -487,7 +487,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionCaption(caption)
             VStack(spacing: 0) { content() }
-                .background(Color(.secondarySystemBackground))
+                .background(IndexPalette.Surface.card)
                 .clipShape(.rect(cornerRadius: 12))
         }
     }
@@ -516,7 +516,7 @@ struct SettingsView: View {
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(IndexAccent.green.opacity(0.7))
+                    .foregroundStyle(IndexPalette.Module.settings.opacity(0.7))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 14)
@@ -540,7 +540,7 @@ struct SettingsView: View {
     private func destructiveRow(label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
-                Text(label).foregroundStyle(.red)
+                Text(label).foregroundStyle(IndexPalette.Action.destructive)
                 Spacer()
             }
             .padding(.horizontal, 14)
