@@ -83,11 +83,18 @@ enum MetricsEngine {
             age: profile.age, sex: profile.sex
         )
         let tdeeValue = tdee(bmr: bmrValue, activityLevel: profile.activityLevel)
-        let deficit = profile.calorieAdjustmentKcal
+        // Signed adjustment: NEGATIVE = deficit (cutting), POSITIVE =
+        // surplus (bulking), 0 = maintenance. Always ADD to TDEE so the
+        // sign carries the direction. Pre-fix, the convention was
+        // "positive number representing a deficit," which inverted the
+        // user-visible slider on the Settings sheet. A one-time UD-
+        // flagged migration in ContentView.task negates any existing
+        // positive values from the old convention.
+        let adjustment = profile.calorieAdjustmentKcal
         let safeFloor = max(1200, bmrValue * 1.1)
 
-        // Base = TDEE minus manual deficit, never below safety floor.
-        let caloriesBase = max(safeFloor, tdeeValue - deficit)
+        // Base = TDEE + signed adjustment, never below safety floor.
+        let caloriesBase = max(safeFloor, tdeeValue + adjustment)
 
         // Workout calories — Ainsworth 2011 MET values × bodyweight × hours.
         // DECISION: v2 doesn't track avg power, so the v0 "cycling vigorous
@@ -154,7 +161,7 @@ enum MetricsEngine {
             proteinBase: proteinBase,
             proteinAdjustmentReason: proteinAdjustmentReason,
             tdee: tdeeValue,
-            deficit: deficit,
+            deficit: adjustment,
             workoutCalories: workoutCalories,
             trendCalories: trendCalories,
             workoutProteinAdded: workoutProteinAdded

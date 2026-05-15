@@ -10,6 +10,12 @@ struct ContentView: View {
     @Environment(ProfileService.self) private var profileService
     @Environment(HealthKitService.self) private var hkService
 
+    /// UserDefaults flag for the one-time
+    /// `Profile.calorieAdjustmentKcal` sign migration. Set the first
+    /// time `.task` runs (regardless of whether a profile existed to
+    /// migrate) so the migration never re-fires on subsequent launches.
+    static let calorieAdjustmentSignMigratedKey = "calorieAdjustmentSignMigrated"
+
     @State private var showStoreResetAlert = false
     @State private var showHardError = false
     @State private var selectedTab: TabSlot = .body
@@ -67,6 +73,24 @@ struct ContentView: View {
             // bootstrap during the orphan / onboarding paths could try
             // to mirror data into a profile-less store).
             profileService.refresh(in: modelContext)
+
+            // One-time sign migration for Profile.calorieAdjustmentKcal.
+            // Pre-fix, positive numbers stored "deficit magnitude"; post-
+            // fix, negative = deficit / positive = surplus. Negate any
+            // existing positive value so a legacy +500 becomes -500
+            // under the new convention. Set the flag unconditionally
+            // after the check so a fresh install (no profile yet) still
+            // marks the migration done — its onboarding-time defaults
+            // are already in the new convention.
+            if !UserDefaults.standard.bool(forKey: Self.calorieAdjustmentSignMigratedKey) {
+                if let profile = profileService.activeProfile,
+                   profile.calorieAdjustmentKcal > 0 {
+                    profile.calorieAdjustmentKcal = -profile.calorieAdjustmentKcal
+                    do { try modelContext.save() }
+                    catch { print("[ContentView] calorie-adjustment sign migration save failed: \(error)") }
+                }
+                UserDefaults.standard.set(true, forKey: Self.calorieAdjustmentSignMigratedKey)
+            }
 
             if UserDefaults.standard.bool(forKey: IndexApp.storeResetFlagKey) {
                 showStoreResetAlert = true

@@ -131,7 +131,10 @@ enum BrainService {
                 message: "+200 kcal buffer — you're losing fast this fortnight."
             )
         }
-        if profile.calorieAdjustmentKcal > 0, lowProteinDays(targets: targets, recentEntries: recentEntries) >= 3 {
+        // calorieAdjustmentKcal < 0 ⇒ deficit (cutting) under the
+        // post-fix sign convention. Pre-fix, positive meant deficit;
+        // the one-time migration in ContentView.task flips legacy values.
+        if profile.calorieAdjustmentKcal < 0, lowProteinDays(targets: targets, recentEntries: recentEntries) >= 3 {
             return ModuleInsight(
                 id: "nutrition.low_protein",
                 module: .nutrition,
