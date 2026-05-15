@@ -151,6 +151,14 @@ struct FitnessMainView: View {
     }
 
     // MARK: - This week
+    //
+    // Body has "87.3 kg" hero, Nutrition has dual "1805 / 165" hero —
+    // Fitness now matches with a single big "2h 53m" total-active-time
+    // hero in module color, plus a secondary sub-line carrying
+    // session count + kcal burned. Empty state collapses to "0m" +
+    // "No sessions yet this week." Kcal segment is dropped entirely
+    // when no workout in the week has hasKcal data (manual squash
+    // logs etc.) so we don't show "· 0 kcal burned".
 
     private var thisWeekSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -158,17 +166,37 @@ struct FitnessMainView: View {
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
                 .tracking(0.8)
-            if thisWeekSessions.isEmpty {
-                Text("0 sessions.")
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(.secondary)
-            } else {
-                // Hero data for Fitness — carries module identity.
-                Text("\(thisWeekSessions.count) sessions · \(formatTotalDuration(thisWeekTotalMinutes)).")
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(IndexPalette.Module.fitness)
-            }
+            Text(thisWeekSessions.isEmpty
+                 ? "0m"
+                 : formatTotalDuration(thisWeekTotalMinutes))
+                .font(.system(size: 56, weight: .semibold, design: .monospaced))
+                .foregroundStyle(IndexPalette.Module.fitness)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(thisWeekSubLine)
+                .font(.subheadline)
+                .foregroundStyle(IndexPalette.Text.secondary)
         }
+    }
+
+    /// Either "No sessions yet this week." (empty) or
+    /// "{n} sessions" plus an optional "· {kcal} kcal burned" segment.
+    /// The kcal segment is dropped when no workout in the week
+    /// carries hasKcal (manual logs that skipped the field).
+    private var thisWeekSubLine: String {
+        if thisWeekSessions.isEmpty { return "No sessions yet this week." }
+        var segments = ["\(thisWeekSessions.count) sessions"]
+        if thisWeekKcalBurned > 0 {
+            segments.append("\(thisWeekKcalBurned) kcal burned")
+        }
+        return segments.joined(separator: " · ")
+    }
+
+    private var thisWeekKcalBurned: Int {
+        Int(thisWeekSessions
+            .filter { $0.hasKcal }
+            .reduce(0.0) { $0 + $1.kcalBurned }
+            .rounded())
     }
 
     // MARK: - Recent
