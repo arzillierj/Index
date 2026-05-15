@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import HealthKit
 
 /// Fitness module main screen — feed-only. Brain insight at the top, a
 /// one-line "this week" summary, and a chronological list of every
@@ -31,8 +30,6 @@ struct FitnessMainView: View {
     @State private var showActiveStrength = false
     @State private var showSettings = false
     @State private var selectedSession: WorkoutSession? = nil
-    @State private var activitySummary: HKActivitySummary? = nil
-    @State private var stepsToday: Int? = nil
 
     private var profile: Profile? { profileService.activeProfile }
 
@@ -44,19 +41,9 @@ struct FitnessMainView: View {
                     backfillBanner
                 }
                 thisWeekSection
-                todaySection
-                Divider()
                 recentSection
             }
             .padding()
-        }
-        // Pull-to-refresh refetches the Today widget data only;
-        // workouts + strength sessions come from @Query already.
-        .refreshable {
-            await reloadTodayData()
-        }
-        .task {
-            await reloadTodayData()
         }
         // Module identity: page-level title in module color; the
         // system nav bar collapses to inline (toolbar buttons only)
@@ -213,58 +200,6 @@ struct FitnessMainView: View {
             .filter { $0.hasKcal }
             .reduce(0.0) { $0 + $1.kcalBurned }
             .rounded())
-    }
-
-    // MARK: - Today (rings + steps)
-
-    private var todaySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("TODAY")
-                .font(IndexFont.sectionCap)
-                .kerning(0.8)
-                .foregroundStyle(IndexPalette.Text.tertiary)
-            // No card backgrounds on either widget — separation comes
-            // from a 20pt horizontal gap. The activity bars stack
-            // and the steps column are both natural-height; HStack
-            // center alignment keeps them visually balanced regardless
-            // of which side ends up slightly taller.
-            HStack(alignment: .center, spacing: 20) {
-                ActivityBarsWidget(
-                    summary: activitySummary,
-                    isAuthorized: hkService.isAuthorized,
-                    onConnectTapped: requestHKAuth
-                )
-                StepsWidget(
-                    stepsToday: stepsToday,
-                    isAuthorized: hkService.isAuthorized,
-                    onConnectTapped: requestHKAuth
-                )
-                .frame(maxHeight: .infinity)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// Fetches both Today widget data sources in parallel. Called
-    /// from `.task` (view appear) and `.refreshable` (pull-to-refresh
-    /// gesture). No background refresh per spec — Today widgets
-    /// reflect a foreground-only snapshot.
-    private func reloadTodayData() async {
-        async let summary = hkService.fetchTodayActivitySummary()
-        async let steps = hkService.fetchTodayStepCount()
-        activitySummary = await summary
-        stepsToday = await steps
-    }
-
-    /// "Connect Apple Watch" / "Allow Health access" tap handler.
-    /// Re-requests HK authorization; iOS will only prompt for types
-    /// that haven't been decided yet. After the request resolves,
-    /// reload Today data so the widgets refresh in place.
-    private func requestHKAuth() {
-        Task {
-            await hkService.requestAuthorization()
-            await reloadTodayData()
-        }
     }
 
     // MARK: - Recent
