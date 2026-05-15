@@ -51,7 +51,7 @@ enum IndexPalette {
     enum Module {
         static let body      = Color(hex: "#1E3A8A")  // French Blue
         static let fitness   = Color(hex: "#FCB07E")  // Sandy Coral
-        static let nutrition = Color(hex: "#5AC8FA")  // Teal
+        static let nutrition = Color(hex: "#4DBE7D")  // Teal
         static let settings  = Color(hex: "#1E3A8A")  // French Blue (same as Body)
     }
 
