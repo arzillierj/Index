@@ -13,6 +13,7 @@ import SwiftData
 struct LogWeightSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(HealthKitService.self) private var hkService
 
     @Query(
         filter: #Predicate<WeightEntry> { !$0.deletedFromIndex },
@@ -26,6 +27,8 @@ struct LogWeightSheet: View {
     @State private var leanMassText: String = ""
     @State private var notes: String = ""
     @State private var date: Date = .now
+    @State private var hkErrorMessage: String? = nil
+    @State private var isSaving = false
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -71,6 +74,24 @@ struct LogWeightSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let msg = hkErrorMessage {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text("Saved locally — Apple Health write failed.")
+                                    .font(.subheadline.weight(.medium))
+                            }
+                            Text(msg)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("Dismiss") { dismiss() }
+                                .font(.caption.weight(.semibold))
+                                .padding(.top, 2)
+                        }
+                    }
+                }
                 Section("Weight") {
                     HStack {
                         TextField("75.0", text: $weightText)
@@ -128,7 +149,7 @@ struct LogWeightSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
-                        .disabled(!canSave)
+                        .disabled(!canSave || isSaving)
                 }
             }
             .onAppear(perform: prefill)
@@ -149,6 +170,9 @@ struct LogWeightSheet: View {
         let bodyFat = bodyFatValidation.parsedInRange
         let leanMass = leanMassValidation.parsedInRange
 
+        // Local entry is durable regardless of HK outcome (DQ3 — Apple
+        // Health is a peer, not master). Insert + save before attempting
+        // the HK mirror so a HK failure can never strand the local row.
         let entry = WeightEntry(
             date: date,
             weightKg: weightKg,
@@ -161,8 +185,23 @@ struct LogWeightSheet: View {
             deletedFromIndex: false
         )
         context.insert(entry)
-        HealthKitService.saveWeight(kg: weightKg, date: date)
-        dismiss()
+        try? context.save()
+
+        // HK mirror — async + throws (audit H4). Success → dismiss.
+        // Failure → keep the sheet open and surface a banner so the
+        // user knows other Health-reading apps won't see this value
+        // (and they can decide to retry from the home screen or
+        // ignore).
+        isSaving = true
+        Task { @MainActor in
+            defer { isSaving = false }
+            do {
+                try await hkService.saveWeight(kg: weightKg, date: date)
+                dismiss()
+            } catch {
+                hkErrorMessage = error.localizedDescription
+            }
+        }
     }
 }
 
