@@ -73,7 +73,6 @@ struct NutritionMainView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 pageTitle
-                insightSection(targets: targets)
                 heroRow(targets: targets)
                 macroGrid
                 actionRow
@@ -226,41 +225,6 @@ struct NutritionMainView: View {
         pendingFallbackBarcode = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             manualEntryPrefill = ManualEntryPrefill(label: "Barcode \(code)")
-        }
-    }
-
-    // MARK: - Brain insight
-    //
-    // Audit H18 — `computedTargets` is read by 4+ subsections per
-    // body (insight, hero Calories, hero Protein, workoutCaption).
-    // Each access reruns MetricsEngine.dailyTargets, which walks the
-    // workouts array, computes BMR/TDEE, and applies the
-    // 14-day-trend buffer. Cache once per body via a body-scoped let
-    // (the caller hoists `let targets = computedTargets` and threads
-    // it through each subsection).
-
-    @ViewBuilder
-    private func insightSection(targets: DailyTargets?) -> some View {
-        if let profile,
-           let targets,
-           let insight = BrainService.nutritionInsight(
-                profile: profile,
-                targets: targets,
-                todayEntries: todayEntries,
-                recentEntries: recentEntries,
-                todaysWorkouts: todaysWorkouts
-           ) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkle")
-                    .foregroundStyle(IndexPalette.Module.nutrition)
-                Text(insight.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 0)
-            }
-            .padding()
-            .background(IndexPalette.Surface.card)
-            .clipShape(.rect(cornerRadius: 12))
         }
     }
 
@@ -566,14 +530,6 @@ struct NutritionMainView: View {
         let start = cal.startOfDay(for: .now)
         let end = cal.date(byAdding: .day, value: 1, to: start) ?? .now
         return allEntries.filter { $0.date >= start && $0.date < end }
-    }
-
-    /// Last 7 days powers the BrainService nutrition rules — low-protein
-    /// looks at the previous 3 days, meal-gap fallback walks back further
-    /// when today is empty.
-    private var recentEntries: [NutritionEntry] {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .distantPast
-        return allEntries.filter { $0.date >= cutoff }
     }
 
     private var todaysWorkouts: [WorkoutSession] {

@@ -21,9 +21,6 @@ struct FitnessMainView: View {
     )
     private var sessions: [WorkoutSession]
 
-    @Query(sort: \DailyHealthMetrics.date, order: .reverse)
-    private var dailyMetrics: [DailyHealthMetrics]
-
     @Query(sort: \StrengthSession.date, order: .reverse)
     private var strengthSessions: [StrengthSession]
 
@@ -43,7 +40,6 @@ struct FitnessMainView: View {
                 if hkService.isBackfilling {
                     backfillBanner
                 }
-                insightSection
                 thisWeekSection
                 Divider()
                 recentSection
@@ -152,29 +148,6 @@ struct FitnessMainView: View {
         .padding()
         .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
-    }
-
-    // MARK: - Brain insight
-
-    @ViewBuilder
-    private var insightSection: some View {
-        if let insight = BrainService.fitnessInsight(
-            thisWeekWorkouts: thisWeekSessions,
-            lastWeekWorkouts: lastWeekSessions,
-            last7DaysHealth: last7DaysHealth
-        ) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "sparkle")
-                    .foregroundStyle(IndexPalette.Module.fitness)
-                Text(insight.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 0)
-            }
-            .padding()
-            .background(IndexPalette.Surface.card)
-            .clipShape(.rect(cornerRadius: 12))
-        }
     }
 
     // MARK: - This week
@@ -300,17 +273,6 @@ struct FitnessMainView: View {
 
     private var thisWeekSessions: [WorkoutSession] {
         sessions.filter { Calendar.current.isDate($0.date, equalTo: .now, toGranularity: .weekOfYear) }
-    }
-
-    private var lastWeekSessions: [WorkoutSession] {
-        let cal = Calendar.current
-        guard let lastWeek = cal.date(byAdding: .weekOfYear, value: -1, to: .now) else { return [] }
-        return sessions.filter { cal.isDate($0.date, equalTo: lastWeek, toGranularity: .weekOfYear) }
-    }
-
-    private var last7DaysHealth: [DailyHealthMetrics] {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .distantPast
-        return dailyMetrics.filter { $0.date >= cutoff }
     }
 
     private var thisWeekTotalMinutes: Int {
