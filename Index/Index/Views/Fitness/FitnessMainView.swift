@@ -235,10 +235,12 @@ struct FitnessMainView: View {
                 .foregroundStyle(.secondary)
                 .tracking(0.8)
             // No card backgrounds on either widget — separation comes
-            // from a 20pt horizontal gap. If side-by-side reads
-            // ungrouped in practice, a vertical hairline Divider can
-            // be inserted between them (IndexPalette.Surface.divider).
-            HStack(alignment: .top, spacing: 20) {
+            // from a 20pt horizontal gap. The rings card drives the
+            // row's intrinsic height; the steps column expands to
+            // match it and vertically centers its content so "STEPS"
+            // sits roughly opposite the ring's vertical midpoint
+            // instead of crowding the top.
+            HStack(alignment: .center, spacing: 20) {
                 RingsWidget(
                     summary: activitySummary,
                     isAuthorized: hkService.isAuthorized,
@@ -249,7 +251,9 @@ struct FitnessMainView: View {
                     isAuthorized: hkService.isAuthorized,
                     onConnectTapped: requestHKAuth
                 )
+                .frame(maxHeight: .infinity)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 

@@ -15,7 +15,14 @@ struct StepsWidget: View {
     static let goal: Int = 10_000
 
     var body: some View {
+        // Spacer-sandwich so the content centers vertically when the
+        // parent HStack gives this column more height than its
+        // intrinsic stack (rings card is the height driver). With
+        // both Spacers at minLength 0 they collapse to nothing when
+        // height is tight, leaving the original top-aligned layout
+        // on narrow widgets.
         VStack(alignment: .leading, spacing: 8) {
+            Spacer(minLength: 0)
             Text("Steps")
                 .font(.caption.smallCaps())
                 .foregroundStyle(IndexPalette.Text.secondary)
@@ -27,6 +34,7 @@ struct StepsWidget: View {
             } else {
                 placeholder
             }
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)

@@ -114,27 +114,44 @@ struct RingsWidget: View {
         .frame(width: Self.outerDiameter, height: Self.outerDiameter)
     }
 
-    /// Single ring = faded background loop + foreground arc(s) + the
-    /// Apple-convention chevron at the 12 o'clock position. The base
-    /// arc trims to `min(progress, 1)`; if progress > 1 a second arc
-    /// draws the overage in a brighter shade on top of the base ring
-    /// (Apple's overachievement signature). The chevron sits ON the
-    /// stroke (Y offset = -radius) and uses the brighter ring color
-    /// for legibility against the saturated arc.
+    /// Single ring = main arc + optional inset overflow arc + the
+    /// Apple-convention chevron at the 12 o'clock position.
+    ///
+    /// Main arc trims to `min(progress, 1)` at full width and hue.
+    /// When progress > 1, a second concentric arc draws the overage
+    /// INSIDE the main ring (smaller diameter, same hue, same
+    /// opacity) — Apple Activity's "past the goal" signature. The
+    /// arc length is (progress - 1), clamped to 1.0 so e.g. 300%
+    /// caps the inset ring at one full revolution rather than
+    /// stacking laps invisibly.
+    ///
+    /// The previous "faded background loop + brighter overage on
+    /// top" treatment is gone — that read as an incomplete
+    /// background layer rather than overachievement.
+    ///
+    /// The chevron sits ON the main stroke (Y offset = -radius) and
+    /// uses the brighter ring color for legibility against the
+    /// saturated arc.
     @ViewBuilder
     private func ring(progress: Double, color: Color, diameter: CGFloat, arrow: ArrowGlyph) -> some View {
         ZStack {
             Circle()
-                .stroke(color.opacity(0.18), style: StrokeStyle(lineWidth: Self.ringWidth, lineCap: .round))
-            Circle()
                 .trim(from: 0, to: CGFloat(min(progress, 1)))
                 .stroke(color, style: StrokeStyle(lineWidth: Self.ringWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+                .frame(width: diameter, height: diameter)
             if progress > 1 {
+                // Inset overflow ring. Diameter reduced by ringWidth+4
+                // on each side (≈ ringWidth+4 radial inset) so the
+                // overflow band sits clearly inside the main ring's
+                // hollow with a small visible gap — same hue, no
+                // opacity reduction, no width change.
+                let insetDiameter = diameter - (Self.ringWidth * 2 + 4)
                 Circle()
-                    .trim(from: 0, to: CGFloat(progress.truncatingRemainder(dividingBy: 1)))
-                    .stroke(brighter(color), style: StrokeStyle(lineWidth: Self.ringWidth, lineCap: .round))
+                    .trim(from: 0, to: CGFloat(min(progress - 1, 1)))
+                    .stroke(color, style: StrokeStyle(lineWidth: Self.ringWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
+                    .frame(width: insetDiameter, height: insetDiameter)
             }
             Image(systemName: arrow.systemName)
                 .font(.system(size: 9, weight: .heavy))
