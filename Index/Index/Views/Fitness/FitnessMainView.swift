@@ -32,12 +32,14 @@ struct FitnessMainView: View {
     @State private var logOtherPreset: WorkoutType? = nil
     @State private var showActiveStrength = false
     @State private var showSettings = false
+    @State private var selectedSession: WorkoutSession? = nil
 
     private var profile: Profile? { profileService.activeProfile }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                pageTitle
                 if hkService.isBackfilling {
                     backfillBanner
                 }
@@ -48,21 +50,28 @@ struct FitnessMainView: View {
             }
             .padding()
         }
-        .navigationTitle("Fitness")
+        // Module identity: page-level title in module color; the
+        // system nav bar collapses to inline (toolbar buttons only)
+        // so the colored "Fitness" hero leads the screen.
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 14) {
                     Button {
                         showSettings = true
                     } label: {
+                        // Explicit Text.secondary breaks the tint
+                        // cascade so the gear icon stays neutral.
                         Image(systemName: "gearshape")
                             .font(.title3)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(IndexPalette.Text.secondary)
                     }
                     Button {
                         showLogSheet = true
                     } label: {
-                        Text("Log").fontWeight(.semibold)
+                        Text("Log")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(IndexPalette.Module.fitness)
                     }
                 }
             }
@@ -82,6 +91,13 @@ struct FitnessMainView: View {
         .fullScreenCover(isPresented: $showActiveStrength) {
             ActiveStrengthSessionView()
         }
+        // State-driven navigation lets the feed rows be Buttons instead
+        // of NavigationLinks — Buttons don't reserve trailing space for
+        // a system disclosure indicator, so the card extends edge-to-edge
+        // and matches the insight pill / This week summary above.
+        .navigationDestination(item: $selectedSession) { s in
+            detailDestination(for: s)
+        }
     }
 
     /// Routes a LogDestination from LogActivitySheet to the appropriate
@@ -100,6 +116,15 @@ struct FitnessMainView: View {
             case .other:    logOtherPreset = .other
             }
         }
+    }
+
+    // MARK: - Page title
+
+    private var pageTitle: some View {
+        Text("Fitness")
+            .font(.largeTitle.weight(.bold))
+            .foregroundStyle(IndexPalette.Module.fitness)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Backfill banner
@@ -133,7 +158,7 @@ struct FitnessMainView: View {
         ) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkle")
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(IndexPalette.Module.fitness)
                 Text(insight.message)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
@@ -158,8 +183,10 @@ struct FitnessMainView: View {
                     .font(.title3.weight(.medium))
                     .foregroundStyle(.secondary)
             } else {
+                // Hero data for Fitness — carries module identity.
                 Text("\(thisWeekSessions.count) sessions · \(formatTotalDuration(thisWeekTotalMinutes)).")
                     .font(.title3.weight(.medium))
+                    .foregroundStyle(IndexPalette.Module.fitness)
             }
         }
     }
@@ -191,28 +218,33 @@ struct FitnessMainView: View {
     }
 
     private var feedList: some View {
-        List {
-            ForEach(sessions) { s in
-                NavigationLink {
-                    detailDestination(for: s)
+        // VStack-based card to match horizontal insets of the page —
+        // List + NavigationLink reserves trailing space for a system
+        // disclosure indicator that makes the card end short on the
+        // right. Plain Buttons + state-driven navigation avoid the
+        // chrome and the card now spans flush with the insight pill
+        // and This week summary above.
+        VStack(spacing: 0) {
+            ForEach(Array(sessions.enumerated()), id: \.element.id) { idx, s in
+                Button {
+                    selectedSession = s
                 } label: {
                     feedRow(s)
                 }
-                .listRowBackground(IndexPalette.Surface.card)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                .buttonStyle(.plain)
+                .contextMenu {
                     Button(role: .destructive) {
                         s.deletedFromIndex = true
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
                 }
+                if idx < sessions.count - 1 {
+                    Divider().padding(.leading, 12)
+                }
             }
         }
-        .listStyle(.plain)
-        .scrollDisabled(true)
-        .scrollContentBackground(.hidden)
-        .frame(height: CGFloat(sessions.count) * 64)
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -231,21 +263,26 @@ struct FitnessMainView: View {
 
     private func feedRow(_ s: WorkoutSession) -> some View {
         HStack(spacing: 12) {
+            // Activity icon: explicit module color so it doesn't lose
+            // saturation through the hierarchical tint cascade.
             Image(systemName: s.type.icon)
                 .font(.body)
-                .foregroundStyle(.tint)
+                .foregroundStyle(IndexPalette.Module.fitness)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(s.type.label)
                     .font(.body)
+                    .foregroundStyle(.primary)
                 Text(relativeWorkoutDate(s.date))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            // Duration is data, not chrome — render near-black so it
+            // reads at full strength.
             Text(formatDuration(s.durationMinutes))
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)

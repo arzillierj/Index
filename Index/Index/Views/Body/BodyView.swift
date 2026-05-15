@@ -32,6 +32,7 @@ struct BodyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                pageTitle
                 insightSection
                 heroWeight
                 trendChart
@@ -41,21 +42,29 @@ struct BodyView: View {
             }
             .padding()
         }
-        .navigationTitle("Body")
+        // Module identity: page-level title takes the module color
+        // instead of the system nav-bar title. Inline display mode
+        // keeps the system bar slim (just the toolbar items) so the
+        // colored "Body" hero text is the first thing on screen.
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 14) {
                     Button {
                         showSettings = true
                     } label: {
+                        // Explicit Text.secondary breaks the tint cascade
+                        // so the gear stays neutral on a tinted tab.
                         Image(systemName: "gearshape")
                             .font(.title3)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(IndexPalette.Text.secondary)
                     }
                     Button {
                         showLogSheet = true
                     } label: {
-                        Text("Log").fontWeight(.semibold)
+                        Text("Log")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(IndexPalette.Module.body)
                     }
                 }
             }
@@ -71,6 +80,15 @@ struct BodyView: View {
         }
     }
 
+    // MARK: - Page title
+
+    private var pageTitle: some View {
+        Text("Body")
+            .font(.largeTitle.weight(.bold))
+            .foregroundStyle(IndexPalette.Module.body)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     // MARK: - Brain insight
 
     @ViewBuilder
@@ -83,7 +101,7 @@ struct BodyView: View {
            ) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkle")
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(IndexPalette.Module.body)
                 Text(insight.message)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
@@ -106,6 +124,7 @@ struct BodyView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(formatKg(latest.weightKg))
                         .font(.system(size: 56, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(IndexPalette.Module.body)
                     Text("kg")
                         .font(.title2)
                         .foregroundStyle(.secondary)
@@ -162,7 +181,7 @@ struct BodyView: View {
                         x: .value("Date", entry.date),
                         y: .value("Weight", entry.weightKg)
                     )
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(IndexPalette.Module.body)
                     .lineStyle(StrokeStyle(lineWidth: 2))
                     .interpolationMethod(.monotone)
                 }
@@ -314,30 +333,32 @@ struct BodyView: View {
     /// — .swipeActions is a List-only modifier, so we can't use a plain
     /// VStack here.
     private var recentEntriesList: some View {
+        // VStack-based card so the right-edge inset matches the rest
+        // of the screen (page padding); a plain List reserves a
+        // scrollbar gutter on the trailing side even with scrolling
+        // disabled. ContextMenu replaces swipeActions for delete.
         let recent = Array(weights.prefix(5))
-        return List {
-            ForEach(recent) { entry in
+        return VStack(spacing: 0) {
+            ForEach(Array(recent.enumerated()), id: \.element.id) { idx, entry in
                 Button {
                     selectedEntry = entry
                 } label: {
                     recentEntryRow(entry: entry)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(IndexPalette.Surface.card)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                .contextMenu {
                     Button(role: .destructive) {
                         entry.deletedFromIndex = true
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
                 }
+                if idx < recent.count - 1 {
+                    Divider().padding(.leading, 12)
+                }
             }
         }
-        .listStyle(.plain)
-        .scrollDisabled(true)
-        .scrollContentBackground(.hidden)
-        .frame(height: CGFloat(recent.count) * 64)
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 

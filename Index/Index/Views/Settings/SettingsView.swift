@@ -260,7 +260,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(IndexPalette.Module.settings.opacity(0.7))
+                        .foregroundStyle(IndexPalette.Text.tertiary)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 14)
@@ -505,18 +505,22 @@ struct SettingsView: View {
     }
 
     private func row(label: String, value: String?, action: @escaping () -> Void) -> some View {
+        // Values + chevron use explicit palette colors. Inside a Button,
+        // `.foregroundStyle(.secondary)` resolves against the inherited
+        // tint and reads as washed-out blue under the Settings tint
+        // cascade; the explicit colors keep them at proper neutral gray.
         Button(action: action) {
             HStack {
-                Text(label).foregroundStyle(.primary)
+                Text(label).foregroundStyle(IndexPalette.Text.primary)
                 Spacer()
                 if let value {
                     Text(value)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(IndexPalette.Text.secondary)
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(IndexPalette.Module.settings.opacity(0.7))
+                    .foregroundStyle(IndexPalette.Text.tertiary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 14)
@@ -527,11 +531,11 @@ struct SettingsView: View {
 
     private func staticRow(label: String, value: String) -> some View {
         HStack {
-            Text(label).foregroundStyle(.primary)
+            Text(label).foregroundStyle(IndexPalette.Text.primary)
             Spacer()
             Text(value)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(IndexPalette.Text.secondary)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)

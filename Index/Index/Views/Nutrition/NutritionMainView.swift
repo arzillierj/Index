@@ -72,6 +72,7 @@ struct NutritionMainView: View {
         let targets = computedTargets
         return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                pageTitle
                 insightSection(targets: targets)
                 heroRow(targets: targets)
                 macroGrid
@@ -81,7 +82,10 @@ struct NutritionMainView: View {
             }
             .padding()
         }
-        .navigationTitle("Nutrition")
+        // Module identity: page-level title takes the module color;
+        // the system nav-bar collapses to inline (toolbar buttons
+        // only) so the colored "Nutrition" hero leads the screen.
+        .navigationBarTitleDisplayMode(.inline)
         // DECISION: No toolbar "Log" button. Phase 6 ships with two
         // first-class action buttons on the main screen itself (Scan
         // barcode / Enter manually) — duplicating either as a toolbar
@@ -95,9 +99,10 @@ struct NutritionMainView: View {
                 Button {
                     showSettings = true
                 } label: {
+                    // Explicit Text.secondary breaks the tint cascade.
                     Image(systemName: "gearshape")
                         .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(IndexPalette.Text.secondary)
                 }
             }
         }
@@ -140,6 +145,15 @@ struct NutritionMainView: View {
                 onCancel: { showScanner = false }
             )
         }
+    }
+
+    // MARK: - Page title
+
+    private var pageTitle: some View {
+        Text("Nutrition")
+            .font(.largeTitle.weight(.bold))
+            .foregroundStyle(IndexPalette.Module.nutrition)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Action row
@@ -238,7 +252,7 @@ struct NutritionMainView: View {
            ) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkle")
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(IndexPalette.Module.nutrition)
                 Text(insight.message)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
@@ -305,8 +319,11 @@ struct NutritionMainView: View {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            // Hero numeral takes the Nutrition module color — both
+            // Calories and Protein are co-equal heroes for cutting.
             Text(SafeFormat.int(consumed))
                 .font(.system(size: 36, weight: .semibold, design: .monospaced))
+                .foregroundStyle(IndexPalette.Module.nutrition)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text("/ \(SafeFormat.int(target)) \(unit)")
@@ -481,33 +498,33 @@ struct NutritionMainView: View {
     }
 
     private var todayList: some View {
+        // VStack-based card so the right-edge inset matches the rest
+        // of the page; List reserves a scrollbar gutter on the
+        // trailing side. ContextMenu (long-press) replaces swipe for
+        // delete. Hard-delete still applies — nutrition rows never
+        // mirror to HealthKit so a tombstone serves no dedup purpose.
         let rows = todayEntries
-        return List {
-            ForEach(rows) { entry in
+        return VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, entry in
                 Button {
                     selectedEntry = entry
                 } label: {
                     row(entry: entry)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(IndexPalette.Surface.card)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                .contextMenu {
                     Button(role: .destructive) {
-                        // Hard delete: nutrition data never mirrors to
-                        // HealthKit (Index doesn't write food back), so
-                        // there's no dedup reason to keep a tombstone.
                         context.delete(entry)
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
                 }
+                if idx < rows.count - 1 {
+                    Divider().padding(.leading, 12)
+                }
             }
         }
-        .listStyle(.plain)
-        .scrollDisabled(true)
-        .scrollContentBackground(.hidden)
-        .frame(height: CGFloat(rows.count) * 64)
+        .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
     }
 
@@ -527,9 +544,11 @@ struct NutritionMainView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            // kcal is a data value — render at full strength so it
+            // reads cleanly against the card background.
             Text("\(SafeFormat.int(entry.kcal)) kcal")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
