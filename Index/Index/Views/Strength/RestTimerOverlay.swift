@@ -29,7 +29,7 @@ struct RestTimerOverlay: View {
                     .foregroundStyle(.white.opacity(0.7))
                     .tracking(2)
                 Text(format(remaining))
-                    .font(IndexFont.monoHero(76))
+                    .font(IndexFont.hero)
                     .foregroundStyle(.white)
                 Text("Tap to dismiss")
                     .font(.caption)

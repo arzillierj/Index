@@ -47,10 +47,10 @@ struct StrengthSessionDetailView: View {
     private var heroSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(absoluteDateString(session.date))
-                .font(.caption)
+                .font(IndexFont.heroCaption)
                 .foregroundStyle(.secondary)
             Text(formatDuration(session.durationMinutes))
-                .font(IndexFont.monoHero(44))
+                .font(IndexFont.hero)
         }
     }
 
@@ -67,10 +67,10 @@ struct StrengthSessionDetailView: View {
     private func statTile(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(IndexFont.monoTile(20))
+                .font(IndexFont.tileValue)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
@@ -83,10 +83,10 @@ struct StrengthSessionDetailView: View {
 
     private var performancesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Exercises")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("EXERCISES")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             VStack(spacing: 12) {
                 ForEach(session.orderedPerformances) { perf in
                     performanceBlock(perf)
@@ -98,20 +98,17 @@ struct StrengthSessionDetailView: View {
     private func performanceBlock(_ perf: ExercisePerformance) -> some View {
         let name = allExercises.first(where: { $0.id == perf.userExerciseId })?.name ?? "Unknown exercise"
         return VStack(alignment: .leading, spacing: 8) {
-            Text(name).font(.subheadline.weight(.medium))
+            Text(name).font(IndexFont.rowTitle.weight(.medium))
             VStack(spacing: 0) {
                 ForEach(perf.orderedSets.indices, id: \.self) { i in
                     let set = perf.orderedSets[i]
                     HStack {
-                        // "Set" sans + index mono.
-                        (Text("Set ").font(.caption)
-                            + Text("\(i + 1)").font(IndexFont.monoCaption(12)))
+                        Text("Set \(i + 1)")
+                            .font(IndexFont.rowSecondary)
                             .foregroundStyle(.secondary)
                             .frame(width: 50, alignment: .leading)
-                        // "75.0 kg × 8" — numbers mono, "kg" and "×" sans.
-                        (Text(formatKg(set.weightKg)).font(IndexFont.monoMedium(15))
-                            + Text(" kg × ").font(.body)
-                            + Text("\(set.reps)").font(IndexFont.monoMedium(15)))
+                        Text("\(formatKg(set.weightKg)) kg × \(set.reps)")
+                            .font(IndexFont.rowValue)
                         Spacer()
                     }
                     .padding(.horizontal, 12)
@@ -130,10 +127,10 @@ struct StrengthSessionDetailView: View {
 
     private var notesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Notes")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("NOTES")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             Text(session.notes)
                 .font(.subheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)

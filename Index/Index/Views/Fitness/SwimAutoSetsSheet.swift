@@ -51,10 +51,10 @@ struct SwimAutoSetsSheet: View {
 
     private var perSetSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sets")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("SETS")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             VStack(spacing: 10) {
                 ForEach(sets) { set in
                     setCard(set)
@@ -66,17 +66,15 @@ struct SwimAutoSetsSheet: View {
     private func setCard(_ set: SwimSet) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                // "Set 1" — "Set" sans label, "1" mono index.
-                (Text("Set ").font(.caption)
-                    + Text("\(set.index)").font(IndexFont.monoCaption(12)))
+                Text("Set \(set.index)")
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.secondary)
                     .tracking(0.8)
                 Text(set.stroke.label)
-                    .font(.headline)
+                    .font(IndexFont.rowTitle)
                 Spacer()
-                // "100m" — number mono, "m" sans.
-                (Text("\(Int(set.distanceMeters.rounded()))").font(IndexFont.monoTile(20))
-                    + Text("m").font(.headline))
+                Text("\(Int(set.distanceMeters.rounded()))m")
+                    .font(IndexFont.tileValue)
                     .foregroundStyle(Self.blueDistance)
             }
 
@@ -101,12 +99,12 @@ struct SwimAutoSetsSheet: View {
     private func statColumn(label: String, value: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.caption2)
+                .font(IndexFont.tileUnit)
                 .foregroundStyle(.secondary)
-            // Stat values are all numeric tokens (MM:SS, SWOLF int,
-            // pace M'SS"/HR) — render whole-token mono.
+            // Numeric tokens (MM:SS, SWOLF int, pace M'SS"/HR) —
+            // rowSecondary carries monospacedDigit for column align.
             Text(value)
-                .font(IndexFont.monoMedium(14))
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(color)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -116,10 +114,10 @@ struct SwimAutoSetsSheet: View {
 
     private var perLengthSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Lengths")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("LENGTHS")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             VStack(spacing: 0) {
                 ForEach(Array(lengths.enumerated()), id: \.element.id) { idx, len in
                     lengthRow(len)
@@ -136,19 +134,19 @@ struct SwimAutoSetsSheet: View {
     private func lengthRow(_ length: SwimLength) -> some View {
         HStack(spacing: 8) {
             Text("\(length.index)")
-                .font(IndexFont.monoCaption(12))
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(.secondary)
                 .frame(width: 28, alignment: .leading)
             Text(length.stroke.label)
-                .font(.subheadline)
+                .font(IndexFont.rowTitle)
                 .lineLimit(1)
             Spacer()
             Text(formatMMSS(length.duration))
-                .font(IndexFont.monoMedium(14))
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(Self.yellowSwim)
                 .frame(width: 64, alignment: .trailing)
             Text(length.swolf.map(String.init) ?? "—")
-                .font(IndexFont.monoMedium(14))
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(Self.teal)
                 .frame(width: 40, alignment: .trailing)
         }

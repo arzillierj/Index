@@ -174,49 +174,38 @@ struct FitnessMainView: View {
 
     private var thisWeekSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("This week")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("THIS WEEK")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             Text(thisWeekSessions.isEmpty
                  ? "0m"
                  : formatTotalDuration(thisWeekTotalMinutes))
-                .font(IndexFont.monoHero(52))
+                .font(IndexFont.hero)
                 .foregroundStyle(IndexPalette.Module.fitness)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            thisWeekSubLineView
+            // Single Text — `.monospacedDigit()` on heroCaption handles
+            // tabular figure alignment without splitting numbers out
+            // into separate Text+Text segments.
+            Text(thisWeekSubLine)
+                .font(IndexFont.heroCaption)
                 .foregroundStyle(IndexPalette.Text.secondary)
         }
     }
 
     /// Sub-line under the hero. Two modes:
-    ///   - Empty week → "No sessions yet this week." (all sans).
-    ///   - Otherwise → "{n} sessions · {kcal} kcal burned" with the
-    ///     two numbers in Geist Mono and the words in SF Pro per the
-    ///     "data is mono, words are sans" rule. kcal segment is
-    ///     dropped when no workout in the week carries hasKcal.
-    @ViewBuilder
-    private var thisWeekSubLineView: some View {
-        if thisWeekSessions.isEmpty {
-            Text("No sessions yet this week.")
-                .font(.subheadline)
-        } else {
-            let countText = Text("\(thisWeekSessions.count)")
-                .font(IndexFont.monoMedium(15))
-            let unitText = Text(" sessions")
-                .font(.subheadline)
-            if thisWeekKcalBurned > 0 {
-                let kcalNumberText = Text("\(thisWeekKcalBurned)")
-                    .font(IndexFont.monoMedium(15))
-                let kcalUnitText = Text(" kcal burned")
-                    .font(.subheadline)
-                let separator = Text(" · ").font(.subheadline)
-                countText + unitText + separator + kcalNumberText + kcalUnitText
-            } else {
-                countText + unitText
-            }
+    ///   - Empty week → "No sessions yet this week."
+    ///   - Otherwise → "{n} sessions · {kcal} kcal burned". kcal
+    ///     segment is dropped when no workout in the week carries
+    ///     hasKcal (manual logs that skipped the field).
+    private var thisWeekSubLine: String {
+        if thisWeekSessions.isEmpty { return "No sessions yet this week." }
+        var segments = ["\(thisWeekSessions.count) sessions"]
+        if thisWeekKcalBurned > 0 {
+            segments.append("\(thisWeekKcalBurned) kcal burned")
         }
+        return segments.joined(separator: " · ")
     }
 
     private var thisWeekKcalBurned: Int {
@@ -230,10 +219,10 @@ struct FitnessMainView: View {
 
     private var todaySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Today")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("TODAY")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             // No card backgrounds on either widget — separation comes
             // from a 20pt horizontal gap. The rings card drives the
             // row's intrinsic height; the steps column expands to
@@ -283,10 +272,10 @@ struct FitnessMainView: View {
 
     private var recentSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Recent")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("RECENT")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             if sessions.isEmpty {
                 emptyState
             } else {
@@ -359,18 +348,17 @@ struct FitnessMainView: View {
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(s.type.label)
-                    .font(.body)
+                    .font(IndexFont.rowTitle)
                     .foregroundStyle(.primary)
                 Text(relativeWorkoutDate(s.date))
-                    .font(.caption)
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            // Duration is data, not chrome — render near-black so it
-            // reads at full strength. Geist Mono keeps recent-row
-            // durations vertically aligned across the feed.
+            // monospacedDigit on rowValue aligns recent-row durations
+            // vertically across the feed without a font swap.
             Text(formatDuration(s.durationMinutes))
-                .font(IndexFont.monoMedium(15))
+                .font(IndexFont.rowValue)
                 .foregroundStyle(.primary)
         }
         .padding(.horizontal, 12)

@@ -100,17 +100,17 @@ struct WorkoutDetailView: View {
     private var heroSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(absoluteDateString(session.date))
-                .font(.caption)
+                .font(IndexFont.heroCaption)
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(formatDuration(session.durationMinutes))
-                    .font(IndexFont.monoHero(44))
+                    .font(IndexFont.hero)
                 Spacer()
                 sourceBadge
             }
             if session.hasIntensity {
                 Text("Intensity \(session.intensity) / 5")
-                    .font(.subheadline)
+                    .font(IndexFont.heroCaption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -160,15 +160,15 @@ struct WorkoutDetailView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
-                    .font(IndexFont.monoTile(20))
+                    .font(IndexFont.tileValue)
                     .foregroundStyle(valueColor ?? Color.primary)
                 if let unit {
                     Text(unit)
-                        .font(.caption)
+                        .font(IndexFont.tileUnit)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -196,15 +196,15 @@ struct WorkoutDetailView: View {
 
     private var heartRateLoading: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Heart Rate")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("HEART RATE")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             HStack {
                 ProgressView()
                     .controlSize(.small)
                 Text("Loading samples…")
-                    .font(.caption)
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -227,10 +227,10 @@ struct WorkoutDetailView: View {
         let mid      = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
 
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Heart Rate")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("HEART RATE")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             Chart {
                 ForEach(samples) { sample in
                     LineMark(
@@ -257,9 +257,10 @@ struct WorkoutDetailView: View {
                 }
             }
             .frame(height: 160)
-            // "153 BPM AVG" — number mono, label sans.
-            (Text("\(Int(avg.rounded()))").font(IndexFont.monoCaption(12))
-                + Text(" BPM AVG").font(.caption))
+            // Single Text — `.monospacedDigit()` on rowSecondary
+            // aligns the BPM digits tabularly without a font swap.
+            Text("\(Int(avg.rounded())) BPM AVG")
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(Self.hrRed)
                 .tracking(0.6)
         }
@@ -293,10 +294,10 @@ struct WorkoutDetailView: View {
 
     private var routePlaceholder: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Route")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("ROUTE")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             ZStack {
                 IndexPalette.Surface.card
                 VStack(spacing: 4) {
@@ -321,10 +322,10 @@ struct WorkoutDetailView: View {
 
     private var notesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Notes")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("NOTES")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             Text(displayNotes)
                 .font(.subheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)

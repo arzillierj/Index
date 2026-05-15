@@ -125,20 +125,20 @@ struct BodyView: View {
     private var heroWeight: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Latest weight")
-                .font(.caption)
+                .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
             if let latest = weights.first {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(formatKg(latest.weightKg))
-                        .font(IndexFont.monoHero(52))
+                        .font(IndexFont.hero)
                         .foregroundStyle(IndexPalette.Module.body)
                     Text("kg")
-                        .font(.title2)
+                        .font(IndexFont.heroUnit)
                         .foregroundStyle(.secondary)
                 }
                 HStack(spacing: 12) {
                     Text(relativeDateString(latest.date))
-                        .font(.caption)
+                        .font(IndexFont.heroCaption)
                         .foregroundStyle(.secondary)
                     if let delta = computeWeightDelta() {
                         deltaLabel(delta)
@@ -146,10 +146,10 @@ struct BodyView: View {
                 }
             } else {
                 Text("—")
-                    .font(IndexFont.monoHero(52))
+                    .font(IndexFont.hero)
                     .foregroundStyle(.tertiary)
                 Text("Tap Log to add your first entry.")
-                    .font(.caption)
+                    .font(IndexFont.heroCaption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -159,12 +159,8 @@ struct BodyView: View {
         HStack(spacing: 2) {
             Image(systemName: kgDelta < 0 ? "arrow.down" : "arrow.up")
                 .font(.caption2)
-            // Number mono, "kg" unit stays sans — split so each
-            // side takes its own font.
-            Text(formatKg(abs(kgDelta)))
-                .font(IndexFont.monoCaption(12))
-            Text("kg")
-                .font(.caption)
+            Text("\(formatKg(abs(kgDelta))) kg")
+                .font(IndexFont.heroCaption)
         }
         .foregroundStyle(.secondary)
     }
@@ -238,10 +234,10 @@ struct BodyView: View {
         let bodyFat  = bodyFatText
         let leanMass = leanMassText
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Composition")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("COMPOSITION")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
                 spacing: 10
@@ -262,10 +258,10 @@ struct BodyView: View {
         let hrv = hrvText
         let rhr = rhrText
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Vitals")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("VITALS")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
                 spacing: 10
@@ -287,15 +283,15 @@ struct BodyView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
-                    .font(IndexFont.monoTile(20))
+                    .font(IndexFont.tileValue)
                     .foregroundStyle(.primary)
                 if let unit {
                     Text(unit)
-                        .font(.caption)
+                        .font(IndexFont.tileUnit)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -312,21 +308,21 @@ struct BodyView: View {
     private var recentEntriesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Recent entries")
-                    .font(.caption.smallCaps())
-                    .foregroundStyle(.secondary)
-                    .tracking(0.8)
+                Text("RECENT ENTRIES")
+                    .font(IndexFont.sectionCap)
+                    .kerning(0.8)
+                    .foregroundStyle(IndexPalette.Text.tertiary)
                 Spacer()
                 NavigationLink {
                     WeightHistoryView()
                 } label: {
                     Text("See all")
-                        .font(.caption)
+                        .font(IndexFont.rowSecondary)
                 }
             }
             if weights.isEmpty {
                 Text("No entries yet.")
-                    .font(.footnote)
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
@@ -376,22 +372,20 @@ struct BodyView: View {
     private func recentEntryRow(entry: WeightEntry) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                // Number mono, "kg" stays sans — split for the mixed-
-                // line rule. Baseline-aligned so the kg sits flush
-                // with the bottom of the digits.
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text(formatKg(entry.weightKg))
-                        .font(IndexFont.monoMedium(16))
+                        .font(IndexFont.rowValue)
                     Text("kg")
-                        .font(.body)
+                        .font(IndexFont.tileUnit)
+                        .foregroundStyle(.secondary)
                 }
                 Text(absoluteDateString(entry.date))
-                    .font(.caption)
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Text(entry.source == .renpho ? "RENPHO" : entry.source == .healthkit ? "HEALTH" : "MANUAL")
-                .font(.caption2.monospaced())
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)

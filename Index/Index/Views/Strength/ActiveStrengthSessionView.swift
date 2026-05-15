@@ -163,7 +163,7 @@ struct ActiveStrengthSessionView: View {
                     .foregroundStyle(.secondary)
                     .tracking(1.5)
                 Text(formatElapsed(elapsedSec))
-                    .font(IndexFont.monoMedium(15))
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.primary)
             }
             Spacer()
@@ -237,7 +237,7 @@ struct ActiveStrengthSessionView: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 TextField("0", text: $weightText)
                     .keyboardType(.decimalPad)
-                    .font(IndexFont.monoHero(36))
+                    .font(IndexFont.hero)
                     .focused($focusedField, equals: .weight)
                 Text("KG")
                     .font(.caption.monospaced())
@@ -258,7 +258,7 @@ struct ActiveStrengthSessionView: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 TextField("0", text: $repsText)
                     .keyboardType(.numberPad)
-                    .font(IndexFont.monoHero(36))
+                    .font(IndexFont.hero)
                     .focused($focusedField, equals: .reps)
                 Text("×")
                     .font(.caption.monospaced())
@@ -331,21 +331,20 @@ struct ActiveStrengthSessionView: View {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
         return HStack {
-            (Text("Set ").font(.caption)
-                + Text("\(idx + 1)").font(IndexFont.monoCaption(12)))
+            Text("Set \(idx + 1)")
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(.secondary)
                 .frame(width: 56, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
-                (Text(formatKg(item.set.weightKg)).font(IndexFont.monoMedium(15))
-                    + Text(" kg × ").font(.body)
-                    + Text("\(item.set.reps)").font(IndexFont.monoMedium(15)))
+                Text("\(formatKg(item.set.weightKg)) kg × \(item.set.reps)")
+                    .font(IndexFont.rowValue)
                 Text(name)
-                    .font(.caption)
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Text(f.string(from: item.set.completedAt))
-                .font(IndexFont.monoCaption(12))
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)

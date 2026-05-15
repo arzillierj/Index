@@ -218,22 +218,17 @@ struct RingsWidget: View {
     }
 
     private func statRow(label: String, value: String, unit: String, color: Color) -> some View {
-        // Mixed line: label sans, "current / goal" mono in ring color,
-        // unit sans in ring color. Concatenated Text lets each segment
-        // pick its own font without nested HStack alignment quirks.
-        let labelText = Text(label)
-            .font(.subheadline)
-            .foregroundStyle(IndexPalette.Text.primary)
-        let valueText = Text(value)
-            .font(IndexFont.monoMedium(15))
-            .foregroundStyle(color)
-        let unitText = Text(" \(unit)")
-            .font(.subheadline)
-            .foregroundStyle(color)
-        return HStack(alignment: .firstTextBaseline) {
-            labelText
+        // Label left in primary, "current / goal unit" right in the
+        // ring color. heroCaption carries monospacedDigit so the
+        // digit columns align across the three rows.
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(IndexFont.heroCaption)
+                .foregroundStyle(IndexPalette.Text.primary)
             Spacer(minLength: 4)
-            (valueText + unitText)
+            Text("\(value) \(unit)")
+                .font(IndexFont.heroCaption)
+                .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }

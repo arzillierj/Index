@@ -23,10 +23,10 @@ struct StepsWidget: View {
         // on narrow widgets.
         VStack(alignment: .leading, spacing: 8) {
             Spacer(minLength: 0)
-            Text("Steps")
-                .font(.caption.smallCaps())
-                .foregroundStyle(IndexPalette.Text.secondary)
-                .tracking(0.8)
+            Text("STEPS")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             if isAuthorized {
                 hero
                 caption
@@ -44,15 +44,15 @@ struct StepsWidget: View {
 
     private var hero: some View {
         Text(Self.formatSwiss(stepsToday ?? 0))
-            .font(IndexFont.monoHero(30))
+            .font(IndexFont.hero)
             .foregroundStyle(IndexPalette.Text.primary)
             .lineLimit(1)
-            .minimumScaleFactor(0.6)
+            .minimumScaleFactor(0.5)
     }
 
     private var caption: some View {
         Text("of \(Self.formatSwiss(Self.goal)) steps")
-            .font(.caption)
+            .font(IndexFont.heroCaption)
             .foregroundStyle(IndexPalette.Text.secondary)
     }
 
@@ -83,7 +83,7 @@ struct StepsWidget: View {
     private var placeholder: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("—")
-                .font(IndexFont.monoHero(30))
+                .font(IndexFont.hero)
                 .foregroundStyle(IndexPalette.Text.tertiary)
             Button(action: onConnectTapped) {
                 Text("Allow Health access")

@@ -56,36 +56,39 @@ struct WeightHistoryView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(absoluteDateString(entry.date))
-                    .font(.subheadline)
+                    .font(IndexFont.rowTitle)
                 HStack(spacing: 6) {
                     Text(sourceCaption(entry.source))
-                        .font(.caption2.monospaced())
+                        .font(IndexFont.rowSecondary)
                         .foregroundStyle(.tertiary)
                     if entry.hasBodyFat {
-                        (Text("· BF ").font(.caption2)
-                            + Text(String(format: "%.1f", entry.bodyFatPercent)).font(IndexFont.monoCaption(11))
-                            + Text("%").font(.caption2))
+                        Text("· BF \(String(format: "%.1f", entry.bodyFatPercent))%")
+                            .font(IndexFont.rowSecondary)
                             .foregroundStyle(.tertiary)
                     }
                     if entry.hasLeanMass {
-                        (Text("· LM ").font(.caption2)
-                            + Text(formatKg(entry.leanMassKg)).font(IndexFont.monoCaption(11))
-                            + Text(" kg").font(.caption2))
+                        Text("· LM \(formatKg(entry.leanMassKg)) kg")
+                            .font(IndexFont.rowSecondary)
                             .foregroundStyle(.tertiary)
                     }
                 }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
-                (Text(formatKg(entry.weightKg)).font(IndexFont.monoMedium(16))
-                    + Text(" kg").font(.body))
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(formatKg(entry.weightKg))
+                        .font(IndexFont.rowValue)
+                    Text("kg")
+                        .font(IndexFont.tileUnit)
+                        .foregroundStyle(.secondary)
+                }
                 if let prev {
                     let delta = entry.weightKg - prev.weightKg
                     HStack(spacing: 2) {
                         Image(systemName: delta < 0 ? "arrow.down" : delta > 0 ? "arrow.up" : "minus")
                             .font(.caption2)
                         Text(formatKg(abs(delta)))
-                            .font(IndexFont.monoCaption(11))
+                            .font(IndexFont.rowSecondary)
                     }
                     .foregroundStyle(.secondary)
                 }

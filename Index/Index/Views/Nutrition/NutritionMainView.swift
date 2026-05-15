@@ -186,7 +186,7 @@ struct NutritionMainView: View {
                     .font(.title3)
                     .foregroundStyle(IndexPalette.Module.nutrition)
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(IndexFont.rowTitle)
                     .foregroundStyle(.primary)
             }
             .frame(maxWidth: .infinity)
@@ -248,10 +248,10 @@ struct NutritionMainView: View {
 
     private func heroRow(targets: DailyTargets?) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Today")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("TODAY")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             HStack(alignment: .top, spacing: 10) {
                 heroCell(
                     label: "Calories",
@@ -281,27 +281,27 @@ struct NutritionMainView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
-                .font(.caption)
+                .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
             // Hero numeral takes the Nutrition module color — both
             // Calories and Protein are co-equal heroes for cutting.
             Text(SafeFormat.int(consumed))
-                .font(IndexFont.monoHero(34))
+                .font(IndexFont.hero)
                 .foregroundStyle(IndexPalette.Module.nutrition)
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            // "/ {target} {unit}" — slash + number in mono, unit in sans.
-            (Text("/ ").font(.subheadline)
-                + Text(SafeFormat.int(target)).font(IndexFont.monoCaption(15))
-                + Text(" \(unit)").font(.subheadline))
+                .minimumScaleFactor(0.5)
+            // "/ {target} {unit}" — one Text in heroCaption. The
+            // monospacedDigit on the helper aligns the target digit
+            // column across the two cells without a font swap.
+            Text("/ \(SafeFormat.int(target)) \(unit)")
+                .font(IndexFont.heroCaption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             // Caption slot is always rendered (invisible when nil) so
-            // both cells remain the same height side-by-side. The
-            // signed number is mono, the rest is sans.
+            // both cells remain the same height side-by-side.
             workoutKcalCaptionView(workoutKcalCaption)
-                .font(.caption2)
+                .font(IndexFont.heroCaption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .opacity(workoutKcalCaption == nil ? 0 : 1)
@@ -320,16 +320,16 @@ struct NutritionMainView: View {
     /// "+{kcal} kcal from workouts" — number mono, words sans. Wraps
     /// a single Text concatenation so the hero cell can scope opacity
     /// to the whole caption slot.
+    /// "+{kcal} kcal from workouts" — single Text under the heroCaption
+    /// token so spacing + digit alignment match the "/ target unit"
+    /// sub-line above. Nil case renders a single space at the same
+    /// font so both cells stay the same height side-by-side.
     @ViewBuilder
     private func workoutKcalCaptionView(_ kcal: Int?) -> some View {
         if let kcal {
-            Text("+\(kcal)").font(IndexFont.monoCaption(11))
-            + Text(" kcal from workouts").font(.caption2)
+            Text("+\(kcal) kcal from workouts")
         } else {
-            // Hidden-but-present placeholder so both cells stay the
-            // same height. Single space + sans, matched font sizing
-            // keeps the baseline identical to the populated case.
-            Text(" ").font(.caption2)
+            Text(" ")
         }
     }
 
@@ -345,10 +345,10 @@ struct NutritionMainView: View {
         let chips = frequentChips
         if !chips.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Frequent")
-                    .font(.caption.smallCaps())
-                    .foregroundStyle(.secondary)
-                    .tracking(0.8)
+                Text("FREQUENT")
+                    .font(IndexFont.sectionCap)
+                    .kerning(0.8)
+                    .foregroundStyle(IndexPalette.Text.tertiary)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(chips) { chip in
@@ -374,7 +374,7 @@ struct NutritionMainView: View {
             )
         } label: {
             Text(chip.label)
-                .font(.subheadline)
+                .font(IndexFont.rowSecondary)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .padding(.horizontal, 14)
@@ -444,13 +444,13 @@ struct NutritionMainView: View {
     private func macroTile(label: String, value: Double) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(SafeFormat.int(value))
-                    .font(IndexFont.monoTile(20))
+                    .font(IndexFont.tileValue)
                 Text("g")
-                    .font(.caption)
+                    .font(IndexFont.tileUnit)
                     .foregroundStyle(.secondary)
             }
         }
@@ -465,13 +465,13 @@ struct NutritionMainView: View {
 
     private var todaysLogSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Today's log")
-                .font(.caption.smallCaps())
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text("TODAY'S LOG")
+                .font(IndexFont.sectionCap)
+                .kerning(0.8)
+                .foregroundStyle(IndexPalette.Text.tertiary)
             if todayEntries.isEmpty {
                 Text("No entries today.")
-                    .font(.footnote)
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
@@ -519,23 +519,27 @@ struct NutritionMainView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     Text(mealTypeLabel(entry.mealType))
-                        .font(.caption2.monospaced())
+                        .font(IndexFont.rowSecondary)
                         .foregroundStyle(.tertiary)
                     Text(entry.label.isEmpty ? "—" : entry.label)
-                        .font(.body)
+                        .font(IndexFont.rowTitle)
                         .lineLimit(1)
                 }
-                // Time is a digit-only token ("17:27") so it reads
-                // mono across the log without splitting.
+                // Time is a digit-only token ("17:27") — rowSecondary
+                // already carries monospacedDigit for column alignment.
                 Text(timeString(entry.date))
-                    .font(IndexFont.monoCaption(12))
+                    .font(IndexFont.rowSecondary)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            // kcal value mono, "kcal" unit sans — mixed-line rule.
-            (Text(SafeFormat.int(entry.kcal)).font(IndexFont.monoCaption(13))
-                + Text(" kcal").font(.caption))
-                .foregroundStyle(.primary)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(SafeFormat.int(entry.kcal))
+                    .font(IndexFont.rowValue)
+                Text("kcal")
+                    .font(IndexFont.tileUnit)
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.primary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

@@ -107,13 +107,12 @@ struct ExerciseDetailView: View {
                     ForEach(perf.orderedSets.indices, id: \.self) { i in
                         let set = perf.orderedSets[i]
                         HStack {
-                            (Text("Set ").font(.caption)
-                                + Text("\(i + 1)").font(IndexFont.monoCaption(12)))
+                            Text("Set \(i + 1)")
+                                .font(IndexFont.rowSecondary)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 50, alignment: .leading)
-                            (Text(formatKg(set.weightKg)).font(IndexFont.monoMedium(15))
-                                + Text(" kg × ").font(.body)
-                                + Text("\(set.reps)").font(IndexFont.monoMedium(15)))
+                            Text("\(formatKg(set.weightKg)) kg × \(set.reps)")
+                                .font(IndexFont.rowValue)
                             Spacer()
                         }
                         .padding(.horizontal, 12)

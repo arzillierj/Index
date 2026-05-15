@@ -207,6 +207,7 @@ struct SettingsView: View {
         )
         return HStack {
             Text("Eat back workout calories")
+                .font(IndexFont.rowTitle)
                 .foregroundStyle(IndexPalette.Text.primary)
             Spacer()
             Toggle("", isOn: bound)
@@ -272,6 +273,7 @@ struct SettingsView: View {
         )
         return HStack {
             Text(module.label)
+                .font(IndexFont.rowTitle)
             Spacer()
             Toggle("", isOn: bound)
                 .labelsHidden()
@@ -334,6 +336,7 @@ struct SettingsView: View {
     private func manualLoggingRow(label: String, isOn: Binding<Bool>) -> some View {
         HStack {
             Text(label)
+                .font(IndexFont.rowTitle)
                 .foregroundStyle(IndexPalette.Text.primary)
             Spacer()
             Toggle("", isOn: isOn)
@@ -353,10 +356,11 @@ struct SettingsView: View {
             } label: {
                 HStack {
                     Text("My exercises")
+                        .font(IndexFont.rowTitle)
                         .foregroundStyle(.primary)
                     Spacer()
                     Text(strengthCountLabel)
-                        .font(.subheadline)
+                        .font(IndexFont.rowValue)
                         .foregroundStyle(.secondary)
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
@@ -402,6 +406,7 @@ struct SettingsView: View {
     private func hkToggleRow(label: String, binding: Binding<Bool>) -> some View {
         HStack {
             Text(label)
+                .font(IndexFont.rowTitle)
             Spacer()
             Toggle("", isOn: binding)
                 .labelsHidden()
@@ -450,6 +455,7 @@ struct SettingsView: View {
     private func notificationToggleRow(label: String, isOn: Binding<Bool>) -> some View {
         HStack {
             Text(label)
+                .font(IndexFont.rowTitle)
                 .foregroundStyle(IndexPalette.Text.primary)
             Spacer()
             Toggle("", isOn: isOn)
@@ -690,10 +696,14 @@ struct SettingsView: View {
     }
 
     private func sectionCaption(_ text: String) -> some View {
-        Text(text)
-            .font(.caption.smallCaps())
-            .foregroundStyle(.secondary)
-            .tracking(0.8)
+        // Callers pass mixed-case ("Goal", "Manual logging") which
+        // this helper renders uppercase via the literal — no
+        // .textCase modifier, so SwiftUI doesn't double-uppercase
+        // when the source string is already upper.
+        Text(text.uppercased())
+            .font(IndexFont.sectionCap)
+            .kerning(0.8)
+            .foregroundStyle(IndexPalette.Text.tertiary)
             .padding(.horizontal, 4)
     }
 
@@ -702,27 +712,20 @@ struct SettingsView: View {
     }
 
     private func row(label: String, value: String?, action: @escaping () -> Void) -> some View {
-        // Values + chevron use explicit palette colors. Inside a Button,
-        // `.foregroundStyle(.secondary)` resolves against the inherited
-        // tint and reads as washed-out blue under the Settings tint
-        // cascade; the explicit colors keep them at proper neutral gray.
-        //
-        // Value text uses `IndexFont.mixedNumeric` so number segments
-        // ("188", "82", "150", "+500", "-1000") render in Geist Mono
-        // while the surrounding unit / prose ("cm", "kg", "g/day",
-        // "kcal/day") stays sans. Pure-text values like "Yannis" or
-        // "Cutting" round-trip as a single sans token.
+        // Value text uses `IndexFont.rowValue` (17pt + monospacedDigit).
+        // monospacedDigit is a no-op on non-digit characters, so the
+        // same helper handles "188 cm", "+500 kcal/day", and pure-text
+        // values like "Yannis" / "Cutting" without a switch.
         Button(action: action) {
             HStack {
-                Text(label).foregroundStyle(IndexPalette.Text.primary)
+                Text(label)
+                    .font(IndexFont.rowTitle)
+                    .foregroundStyle(IndexPalette.Text.primary)
                 Spacer()
                 if let value {
-                    IndexFont.mixedNumeric(
-                        value,
-                        numberFont: IndexFont.monoCaption(14),
-                        textFont: .subheadline
-                    )
-                    .foregroundStyle(IndexPalette.Text.secondary)
+                    Text(value)
+                        .font(IndexFont.rowValue)
+                        .foregroundStyle(IndexPalette.Text.secondary)
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -737,14 +740,13 @@ struct SettingsView: View {
 
     private func staticRow(label: String, value: String) -> some View {
         HStack {
-            Text(label).foregroundStyle(IndexPalette.Text.primary)
+            Text(label)
+                .font(IndexFont.rowTitle)
+                .foregroundStyle(IndexPalette.Text.primary)
             Spacer()
-            IndexFont.mixedNumeric(
-                value,
-                numberFont: IndexFont.monoCaption(14),
-                textFont: .subheadline
-            )
-            .foregroundStyle(IndexPalette.Text.secondary)
+            Text(value)
+                .font(IndexFont.rowValue)
+                .foregroundStyle(IndexPalette.Text.secondary)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
@@ -753,7 +755,9 @@ struct SettingsView: View {
     private func destructiveRow(label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
-                Text(label).foregroundStyle(IndexPalette.Action.destructive)
+                Text(label)
+                    .font(IndexFont.rowTitle)
+                    .foregroundStyle(IndexPalette.Action.destructive)
                 Spacer()
             }
             .padding(.horizontal, 14)
