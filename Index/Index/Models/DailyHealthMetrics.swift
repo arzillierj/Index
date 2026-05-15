@@ -22,7 +22,7 @@ final class DailyHealthMetrics {
     /// `HealthKitService.fetchDailyHealth` which passes the real
     /// startOfDay value, so this default is never observed in normal
     /// operation.
-    var date: Date = .distantPast
+    var date: Date = Date.distantPast
     var hrvMs: Double = 0
     var hasHRV: Bool = false
     var vo2Max: Double = 0
