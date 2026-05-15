@@ -325,11 +325,26 @@ struct BarcodeResultSheet: View {
         // FetchDescriptor (not @Query) — applyProduct may have just
         // inserted a row in this same frame; @Query hasn't necessarily
         // observed it yet.
+        //
+        // Audit H15 — explicit do/catch around the dedup fetch. The
+        // previous `try?` swallowed errors silently, which would have
+        // routed a real fetch failure into the "no existing → insert
+        // new" branch and silently double-inserted a FoodProduct row
+        // with the same barcode. On failure here we abort the save
+        // without dismissing so the user can retry; the local
+        // NutritionEntry insert below also doesn't run, so nothing
+        // is half-committed.
         let barcodeKey = barcode
         let descriptor = FetchDescriptor<FoodProduct>(
             predicate: #Predicate { $0.barcode == barcodeKey }
         )
-        let existing = (try? context.fetch(descriptor))?.first
+        let existing: FoodProduct?
+        do {
+            existing = try context.fetch(descriptor).first
+        } catch {
+            print("[BarcodeResultSheet] dedup fetch failed: \(error) — aborting save")
+            return
+        }
 
         if let existing {
             existing.name           = food.name
