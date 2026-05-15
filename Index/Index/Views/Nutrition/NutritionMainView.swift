@@ -218,10 +218,16 @@ struct NutritionMainView: View {
 
     // MARK: - Hero row (Calories + Protein side-by-side)
     //
-    // Two equal-width hero cells. Calories on the left (with the optional
+    // Two equal-width hero stacks. Calories on the left (with the optional
     // workout-adjustment caption), Protein on the right. Equal visual
     // weight communicates "the two metrics that matter most for cutting"
     // — neither dominates.
+    //
+    // Cards intentionally absent from the hero (unlike Carbs / Fat
+    // tiles below). The numbers float on the page background; the hero
+    // dominates by typography rather than chrome. Vertical breathing
+    // room compensates for the missing card padding so the hero
+    // doesn't crowd the "TODAY" caption above or the macro grid below.
     //
     // Big number wraps to its own line above the "/ target unit" subtitle
     // (rather than HStack-ing them) so a 4-digit consumed + 4-digit target
@@ -229,7 +235,7 @@ struct NutritionMainView: View {
     // against the worst case if the number ever grows past 4 digits.
 
     private var heroRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Today")
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
@@ -250,6 +256,7 @@ struct NutritionMainView: View {
                     caption: nil
                 )
             }
+            .padding(.bottom, 8)
         }
     }
 
@@ -282,9 +289,6 @@ struct NutritionMainView: View {
                 .opacity(caption == nil ? 0 : 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(.rect(cornerRadius: 12))
     }
 
     private var workoutCaption: String? {
