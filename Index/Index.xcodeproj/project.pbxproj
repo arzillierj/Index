@@ -257,6 +257,7 @@
 				DEVELOPMENT_TEAM = 7LR7393BHN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Index uses the camera to scan barcodes on food packaging to look up nutrition information.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Index reads your weight, body composition, workouts, heart rate, HRV, and VO2 max from Apple Health to interpret your data across body, fitness, and nutrition.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Index writes manual weight entries to Apple Health so the value is shared with other apps.";
@@ -297,6 +298,7 @@
 				DEVELOPMENT_TEAM = 7LR7393BHN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Index uses the camera to scan barcodes on food packaging to look up nutrition information.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Index reads your weight, body composition, workouts, heart rate, HRV, and VO2 max from Apple Health to interpret your data across body, fitness, and nutrition.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Index writes manual weight entries to Apple Health so the value is shared with other apps.";
