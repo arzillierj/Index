@@ -224,13 +224,12 @@ struct FitnessMainView: View {
                 .kerning(0.8)
                 .foregroundStyle(IndexPalette.Text.tertiary)
             // No card backgrounds on either widget — separation comes
-            // from a 20pt horizontal gap. The rings card drives the
-            // row's intrinsic height; the steps column expands to
-            // match it and vertically centers its content so "STEPS"
-            // sits roughly opposite the ring's vertical midpoint
-            // instead of crowding the top.
+            // from a 20pt horizontal gap. The activity bars stack
+            // and the steps column are both natural-height; HStack
+            // center alignment keeps them visually balanced regardless
+            // of which side ends up slightly taller.
             HStack(alignment: .center, spacing: 20) {
-                RingsWidget(
+                ActivityBarsWidget(
                     summary: activitySummary,
                     isAuthorized: hkService.isAuthorized,
                     onConnectTapped: requestHKAuth
