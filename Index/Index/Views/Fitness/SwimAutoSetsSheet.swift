@@ -66,15 +66,17 @@ struct SwimAutoSetsSheet: View {
     private func setCard(_ set: SwimSet) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Set \(set.index)")
-                    .font(.caption.monospaced())
+                // "Set 1" — "Set" sans label, "1" mono index.
+                (Text("Set ").font(.caption)
+                    + Text("\(set.index)").font(IndexFont.monoCaption(12)))
                     .foregroundStyle(.secondary)
                     .tracking(0.8)
                 Text(set.stroke.label)
                     .font(.headline)
                 Spacer()
-                Text("\(Int(set.distanceMeters.rounded()))m")
-                    .font(.title3.monospacedDigit().weight(.semibold))
+                // "100m" — number mono, "m" sans.
+                (Text("\(Int(set.distanceMeters.rounded()))").font(IndexFont.monoTile(20))
+                    + Text("m").font(.headline))
                     .foregroundStyle(Self.blueDistance)
             }
 
@@ -101,8 +103,10 @@ struct SwimAutoSetsSheet: View {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            // Stat values are all numeric tokens (MM:SS, SWOLF int,
+            // pace M'SS"/HR) — render whole-token mono.
             Text(value)
-                .font(.subheadline.monospacedDigit())
+                .font(IndexFont.monoMedium(14))
                 .foregroundStyle(color)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -132,7 +136,7 @@ struct SwimAutoSetsSheet: View {
     private func lengthRow(_ length: SwimLength) -> some View {
         HStack(spacing: 8) {
             Text("\(length.index)")
-                .font(.caption.monospacedDigit())
+                .font(IndexFont.monoCaption(12))
                 .foregroundStyle(.secondary)
                 .frame(width: 28, alignment: .leading)
             Text(length.stroke.label)
@@ -140,11 +144,11 @@ struct SwimAutoSetsSheet: View {
                 .lineLimit(1)
             Spacer()
             Text(formatMMSS(length.duration))
-                .font(.subheadline.monospacedDigit())
+                .font(IndexFont.monoMedium(14))
                 .foregroundStyle(Self.yellowSwim)
                 .frame(width: 64, alignment: .trailing)
             Text(length.swolf.map(String.init) ?? "—")
-                .font(.subheadline.monospacedDigit())
+                .font(IndexFont.monoMedium(14))
                 .foregroundStyle(Self.teal)
                 .frame(width: 40, alignment: .trailing)
         }

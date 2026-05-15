@@ -50,7 +50,7 @@ struct StrengthSessionDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(formatDuration(session.durationMinutes))
-                .font(.system(size: 48, weight: .semibold, design: .monospaced))
+                .font(IndexFont.monoHero(44))
         }
     }
 
@@ -70,7 +70,7 @@ struct StrengthSessionDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.title3.monospacedDigit())
+                .font(IndexFont.monoTile(20))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
@@ -103,12 +103,15 @@ struct StrengthSessionDetailView: View {
                 ForEach(perf.orderedSets.indices, id: \.self) { i in
                     let set = perf.orderedSets[i]
                     HStack {
-                        Text("Set \(i + 1)")
-                            .font(.caption.monospaced())
+                        // "Set" sans + index mono.
+                        (Text("Set ").font(.caption)
+                            + Text("\(i + 1)").font(IndexFont.monoCaption(12)))
                             .foregroundStyle(.secondary)
                             .frame(width: 50, alignment: .leading)
-                        Text("\(formatKg(set.weightKg)) kg × \(set.reps)")
-                            .font(.body.monospacedDigit())
+                        // "75.0 kg × 8" — numbers mono, "kg" and "×" sans.
+                        (Text(formatKg(set.weightKg)).font(IndexFont.monoMedium(15))
+                            + Text(" kg × ").font(.body)
+                            + Text("\(set.reps)").font(IndexFont.monoMedium(15)))
                         Spacer()
                     }
                     .padding(.horizontal, 12)

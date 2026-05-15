@@ -68,6 +68,17 @@ struct IndexApp: App {
 
     let modelContainer: ModelContainer = sharedContainer
 
+    /// Registers Geist Mono with the process so
+    /// `Font.custom("GeistMono-…")` resolves throughout the app. The
+    /// project's Info.plist is generated and doesn't support
+    /// UIAppFonts (array-typed), so runtime registration is the
+    /// portable path here. If the TTFs are ever missing from the
+    /// bundle the helper logs once and returns — every numerical
+    /// site falls back to system font, the app keeps running.
+    init() {
+        IndexFontRegistration.registerBundledFonts()
+    }
+
     @State private var profileService = ProfileService(identity: AppDependencies.identity)
     @State private var notificationService = NotificationService.shared
     @State private var hkService = HealthKitService(

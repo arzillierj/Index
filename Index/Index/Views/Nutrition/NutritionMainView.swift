@@ -258,14 +258,14 @@ struct NutritionMainView: View {
                     consumed: todayKcal,
                     target: targets?.calories ?? 0,
                     unit: "kcal",
-                    caption: workoutCaption(targets: targets)
+                    workoutKcalCaption: workoutKcalCaption(targets: targets)
                 )
                 heroCell(
                     label: "Protein",
                     consumed: todayProtein,
                     target: targets?.protein ?? 0,
                     unit: "g",
-                    caption: nil
+                    workoutKcalCaption: nil
                 )
             }
             .padding(.bottom, 8)
@@ -277,7 +277,7 @@ struct NutritionMainView: View {
         consumed: Double,
         target: Double,
         unit: String,
-        caption: String?
+        workoutKcalCaption: Int?
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
@@ -286,33 +286,51 @@ struct NutritionMainView: View {
             // Hero numeral takes the Nutrition module color — both
             // Calories and Protein are co-equal heroes for cutting.
             Text(SafeFormat.int(consumed))
-                .font(.system(size: 36, weight: .semibold, design: .monospaced))
+                .font(IndexFont.monoHero(34))
                 .foregroundStyle(IndexPalette.Module.nutrition)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-            Text("/ \(SafeFormat.int(target)) \(unit)")
-                .font(.subheadline)
+            // "/ {target} {unit}" — slash + number in mono, unit in sans.
+            (Text("/ ").font(.subheadline)
+                + Text(SafeFormat.int(target)).font(IndexFont.monoCaption(15))
+                + Text(" \(unit)").font(.subheadline))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             // Caption slot is always rendered (invisible when nil) so
-            // both cells remain the same height side-by-side.
-            Text(caption ?? " ")
+            // both cells remain the same height side-by-side. The
+            // signed number is mono, the rest is sans.
+            workoutKcalCaptionView(workoutKcalCaption)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-                .opacity(caption == nil ? 0 : 1)
+                .opacity(workoutKcalCaption == nil ? 0 : 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func workoutCaption(targets: DailyTargets?) -> String? {
-        // MetricsEngine zeros workoutCalories when the
-        // eat-back-workout-calories toggle is off, so the > 0 guard
-        // alone is enough to hide the caption when the workout
-        // contribution isn't actually applied.
+    /// Returns the integer kcal value applied to today's target from
+    /// workouts when the eat-back toggle is on AND today's burn is
+    /// positive. nil when there's nothing to surface.
+    private func workoutKcalCaption(targets: DailyTargets?) -> Int? {
         guard let kcal = targets?.workoutCalories, kcal > 0 else { return nil }
-        return "+\(SafeFormat.int(kcal)) kcal from workouts"
+        return Int(kcal.rounded())
+    }
+
+    /// "+{kcal} kcal from workouts" — number mono, words sans. Wraps
+    /// a single Text concatenation so the hero cell can scope opacity
+    /// to the whole caption slot.
+    @ViewBuilder
+    private func workoutKcalCaptionView(_ kcal: Int?) -> some View {
+        if let kcal {
+            Text("+\(kcal)").font(IndexFont.monoCaption(11))
+            + Text(" kcal from workouts").font(.caption2)
+        } else {
+            // Hidden-but-present placeholder so both cells stay the
+            // same height. Single space + sans, matched font sizing
+            // keeps the baseline identical to the populated case.
+            Text(" ").font(.caption2)
+        }
     }
 
     // MARK: - Frequent foods chips (behavior-based, last 30 days)
@@ -430,7 +448,7 @@ struct NutritionMainView: View {
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(SafeFormat.int(value))
-                    .font(.title3.monospacedDigit())
+                    .font(IndexFont.monoTile(20))
                 Text("g")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -507,15 +525,16 @@ struct NutritionMainView: View {
                         .font(.body)
                         .lineLimit(1)
                 }
+                // Time is a digit-only token ("17:27") so it reads
+                // mono across the log without splitting.
                 Text(timeString(entry.date))
-                    .font(.caption)
+                    .font(IndexFont.monoCaption(12))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            // kcal is a data value — render at full strength so it
-            // reads cleanly against the card background.
-            Text("\(SafeFormat.int(entry.kcal)) kcal")
-                .font(.caption.monospacedDigit())
+            // kcal value mono, "kcal" unit sans — mixed-line rule.
+            (Text(SafeFormat.int(entry.kcal)).font(IndexFont.monoCaption(13))
+                + Text(" kcal").font(.caption))
                 .foregroundStyle(.primary)
         }
         .padding(.horizontal, 12)

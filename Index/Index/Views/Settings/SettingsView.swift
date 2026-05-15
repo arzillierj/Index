@@ -706,14 +706,23 @@ struct SettingsView: View {
         // `.foregroundStyle(.secondary)` resolves against the inherited
         // tint and reads as washed-out blue under the Settings tint
         // cascade; the explicit colors keep them at proper neutral gray.
+        //
+        // Value text uses `IndexFont.mixedNumeric` so number segments
+        // ("188", "82", "150", "+500", "-1000") render in Geist Mono
+        // while the surrounding unit / prose ("cm", "kg", "g/day",
+        // "kcal/day") stays sans. Pure-text values like "Yannis" or
+        // "Cutting" round-trip as a single sans token.
         Button(action: action) {
             HStack {
                 Text(label).foregroundStyle(IndexPalette.Text.primary)
                 Spacer()
                 if let value {
-                    Text(value)
-                        .font(.subheadline)
-                        .foregroundStyle(IndexPalette.Text.secondary)
+                    IndexFont.mixedNumeric(
+                        value,
+                        numberFont: IndexFont.monoCaption(14),
+                        textFont: .subheadline
+                    )
+                    .foregroundStyle(IndexPalette.Text.secondary)
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -730,9 +739,12 @@ struct SettingsView: View {
         HStack {
             Text(label).foregroundStyle(IndexPalette.Text.primary)
             Spacer()
-            Text(value)
-                .font(.subheadline)
-                .foregroundStyle(IndexPalette.Text.secondary)
+            IndexFont.mixedNumeric(
+                value,
+                numberFont: IndexFont.monoCaption(14),
+                textFont: .subheadline
+            )
+            .foregroundStyle(IndexPalette.Text.secondary)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)

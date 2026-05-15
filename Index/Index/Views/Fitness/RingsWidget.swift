@@ -178,16 +178,19 @@ struct RingsWidget: View {
                 statRow(
                     label: "Move",
                     value: moveValueText,
+                    unit: "kcal",
                     color: Self.moveColor
                 )
                 statRow(
                     label: "Exercise",
                     value: exerciseValueText,
+                    unit: "min",
                     color: Self.exerciseColor
                 )
                 statRow(
                     label: "Stand",
                     value: standValueText,
+                    unit: "hrs",
                     color: Self.standColor
                 )
             }
@@ -197,15 +200,23 @@ struct RingsWidget: View {
         .frame(width: Self.outerDiameter, height: Self.outerDiameter + 22)
     }
 
-    private func statRow(label: String, value: String, color: Color) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(IndexPalette.Text.primary)
+    private func statRow(label: String, value: String, unit: String, color: Color) -> some View {
+        // Mixed line: label sans, "current / goal" mono in ring color,
+        // unit sans in ring color. Concatenated Text lets each segment
+        // pick its own font without nested HStack alignment quirks.
+        let labelText = Text(label)
+            .font(.subheadline)
+            .foregroundStyle(IndexPalette.Text.primary)
+        let valueText = Text(value)
+            .font(IndexFont.monoMedium(15))
+            .foregroundStyle(color)
+        let unitText = Text(" \(unit)")
+            .font(.subheadline)
+            .foregroundStyle(color)
+        return HStack(alignment: .firstTextBaseline) {
+            labelText
             Spacer(minLength: 4)
-            Text(value)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(color)
+            (valueText + unitText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
@@ -268,25 +279,28 @@ struct RingsWidget: View {
 
     // MARK: - Stats-face text (read directly from summary; no animation)
 
+    // The text helpers return just the "current / goal" number pair
+    // — the unit string is appended by statRow's sans-font segment.
+
     private var moveValueText: String {
         guard let s = summary else { return "—" }
         let value = Int(s.activeEnergyBurned.doubleValue(for: .kilocalorie()).rounded())
         let goal = Int(s.activeEnergyBurnedGoal.doubleValue(for: .kilocalorie()).rounded())
-        return "\(value) / \(goal) kcal"
+        return "\(value) / \(goal)"
     }
 
     private var exerciseValueText: String {
         guard let s = summary else { return "—" }
         let value = Int(s.appleExerciseTime.doubleValue(for: .minute()).rounded())
         let goal = Int(s.appleExerciseTimeGoal.doubleValue(for: .minute()).rounded())
-        return "\(value) / \(goal) min"
+        return "\(value) / \(goal)"
     }
 
     private var standValueText: String {
         guard let s = summary else { return "—" }
         let value = Int(s.appleStandHours.doubleValue(for: .count()).rounded())
         let goal = Int(s.appleStandHoursGoal.doubleValue(for: .count()).rounded())
-        return "\(value) / \(goal) hrs"
+        return "\(value) / \(goal)"
     }
 }
 

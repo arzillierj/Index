@@ -130,7 +130,7 @@ struct BodyView: View {
             if let latest = weights.first {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(formatKg(latest.weightKg))
-                        .font(.system(size: 56, weight: .semibold, design: .monospaced))
+                        .font(IndexFont.monoHero(52))
                         .foregroundStyle(IndexPalette.Module.body)
                     Text("kg")
                         .font(.title2)
@@ -146,7 +146,7 @@ struct BodyView: View {
                 }
             } else {
                 Text("—")
-                    .font(.system(size: 56, weight: .semibold, design: .monospaced))
+                    .font(IndexFont.monoHero(52))
                     .foregroundStyle(.tertiary)
                 Text("Tap Log to add your first entry.")
                     .font(.caption)
@@ -159,8 +159,12 @@ struct BodyView: View {
         HStack(spacing: 2) {
             Image(systemName: kgDelta < 0 ? "arrow.down" : "arrow.up")
                 .font(.caption2)
-            Text("\(formatKg(abs(kgDelta))) kg")
-                .font(.caption.monospacedDigit())
+            // Number mono, "kg" unit stays sans — split so each
+            // side takes its own font.
+            Text(formatKg(abs(kgDelta)))
+                .font(IndexFont.monoCaption(12))
+            Text("kg")
+                .font(.caption)
         }
         .foregroundStyle(.secondary)
     }
@@ -287,7 +291,7 @@ struct BodyView: View {
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
-                    .font(.title3.monospacedDigit())
+                    .font(IndexFont.monoTile(20))
                     .foregroundStyle(.primary)
                 if let unit {
                     Text(unit)
@@ -372,8 +376,15 @@ struct BodyView: View {
     private func recentEntryRow(entry: WeightEntry) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(formatKg(entry.weightKg)) kg")
-                    .font(.body.monospacedDigit())
+                // Number mono, "kg" stays sans — split for the mixed-
+                // line rule. Baseline-aligned so the kg sits flush
+                // with the bottom of the digits.
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(formatKg(entry.weightKg))
+                        .font(IndexFont.monoMedium(16))
+                    Text("kg")
+                        .font(.body)
+                }
                 Text(absoluteDateString(entry.date))
                     .font(.caption)
                     .foregroundStyle(.secondary)

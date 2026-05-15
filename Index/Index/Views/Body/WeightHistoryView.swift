@@ -62,28 +62,30 @@ struct WeightHistoryView: View {
                         .font(.caption2.monospaced())
                         .foregroundStyle(.tertiary)
                     if entry.hasBodyFat {
-                        Text("· BF \(String(format: "%.1f", entry.bodyFatPercent))%")
-                            .font(.caption2.monospacedDigit())
+                        (Text("· BF ").font(.caption2)
+                            + Text(String(format: "%.1f", entry.bodyFatPercent)).font(IndexFont.monoCaption(11))
+                            + Text("%").font(.caption2))
                             .foregroundStyle(.tertiary)
                     }
                     if entry.hasLeanMass {
-                        Text("· LM \(formatKg(entry.leanMassKg)) kg")
-                            .font(.caption2.monospacedDigit())
+                        (Text("· LM ").font(.caption2)
+                            + Text(formatKg(entry.leanMassKg)).font(IndexFont.monoCaption(11))
+                            + Text(" kg").font(.caption2))
                             .foregroundStyle(.tertiary)
                     }
                 }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(formatKg(entry.weightKg)) kg")
-                    .font(.body.monospacedDigit())
+                (Text(formatKg(entry.weightKg)).font(IndexFont.monoMedium(16))
+                    + Text(" kg").font(.body))
                 if let prev {
                     let delta = entry.weightKg - prev.weightKg
                     HStack(spacing: 2) {
                         Image(systemName: delta < 0 ? "arrow.down" : delta > 0 ? "arrow.up" : "minus")
                             .font(.caption2)
                         Text(formatKg(abs(delta)))
-                            .font(.caption2.monospacedDigit())
+                            .font(IndexFont.monoCaption(11))
                     }
                     .foregroundStyle(.secondary)
                 }

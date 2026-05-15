@@ -36,7 +36,7 @@ struct StepsWidget: View {
 
     private var hero: some View {
         Text(Self.formatSwiss(stepsToday ?? 0))
-            .font(.system(size: 32, weight: .semibold, design: .monospaced))
+            .font(IndexFont.monoHero(30))
             .foregroundStyle(IndexPalette.Text.primary)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
@@ -75,7 +75,7 @@ struct StepsWidget: View {
     private var placeholder: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("—")
-                .font(.system(size: 32, weight: .semibold, design: .monospaced))
+                .font(IndexFont.monoHero(30))
                 .foregroundStyle(IndexPalette.Text.tertiary)
             Button(action: onConnectTapped) {
                 Text("Allow Health access")

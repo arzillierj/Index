@@ -104,7 +104,7 @@ struct WorkoutDetailView: View {
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(formatDuration(session.durationMinutes))
-                    .font(.system(size: 48, weight: .semibold, design: .monospaced))
+                    .font(IndexFont.monoHero(44))
                 Spacer()
                 sourceBadge
             }
@@ -164,7 +164,7 @@ struct WorkoutDetailView: View {
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
-                    .font(.title3.monospacedDigit())
+                    .font(IndexFont.monoTile(20))
                     .foregroundStyle(valueColor ?? Color.primary)
                 if let unit {
                     Text(unit)
@@ -257,8 +257,9 @@ struct WorkoutDetailView: View {
                 }
             }
             .frame(height: 160)
-            Text("\(Int(avg.rounded())) BPM AVG")
-                .font(.caption.monospaced())
+            // "153 BPM AVG" — number mono, label sans.
+            (Text("\(Int(avg.rounded()))").font(IndexFont.monoCaption(12))
+                + Text(" BPM AVG").font(.caption))
                 .foregroundStyle(Self.hrRed)
                 .tracking(0.6)
         }

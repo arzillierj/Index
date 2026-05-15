@@ -181,27 +181,42 @@ struct FitnessMainView: View {
             Text(thisWeekSessions.isEmpty
                  ? "0m"
                  : formatTotalDuration(thisWeekTotalMinutes))
-                .font(.system(size: 56, weight: .semibold, design: .monospaced))
+                .font(IndexFont.monoHero(52))
                 .foregroundStyle(IndexPalette.Module.fitness)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Text(thisWeekSubLine)
-                .font(.subheadline)
+            thisWeekSubLineView
                 .foregroundStyle(IndexPalette.Text.secondary)
         }
     }
 
-    /// Either "No sessions yet this week." (empty) or
-    /// "{n} sessions" plus an optional "· {kcal} kcal burned" segment.
-    /// The kcal segment is dropped when no workout in the week
-    /// carries hasKcal (manual logs that skipped the field).
-    private var thisWeekSubLine: String {
-        if thisWeekSessions.isEmpty { return "No sessions yet this week." }
-        var segments = ["\(thisWeekSessions.count) sessions"]
-        if thisWeekKcalBurned > 0 {
-            segments.append("\(thisWeekKcalBurned) kcal burned")
+    /// Sub-line under the hero. Two modes:
+    ///   - Empty week → "No sessions yet this week." (all sans).
+    ///   - Otherwise → "{n} sessions · {kcal} kcal burned" with the
+    ///     two numbers in Geist Mono and the words in SF Pro per the
+    ///     "data is mono, words are sans" rule. kcal segment is
+    ///     dropped when no workout in the week carries hasKcal.
+    @ViewBuilder
+    private var thisWeekSubLineView: some View {
+        if thisWeekSessions.isEmpty {
+            Text("No sessions yet this week.")
+                .font(.subheadline)
+        } else {
+            let countText = Text("\(thisWeekSessions.count)")
+                .font(IndexFont.monoMedium(15))
+            let unitText = Text(" sessions")
+                .font(.subheadline)
+            if thisWeekKcalBurned > 0 {
+                let kcalNumberText = Text("\(thisWeekKcalBurned)")
+                    .font(IndexFont.monoMedium(15))
+                let kcalUnitText = Text(" kcal burned")
+                    .font(.subheadline)
+                let separator = Text(" · ").font(.subheadline)
+                countText + unitText + separator + kcalNumberText + kcalUnitText
+            } else {
+                countText + unitText
+            }
         }
-        return segments.joined(separator: " · ")
     }
 
     private var thisWeekKcalBurned: Int {
@@ -348,9 +363,10 @@ struct FitnessMainView: View {
             }
             Spacer(minLength: 8)
             // Duration is data, not chrome — render near-black so it
-            // reads at full strength.
+            // reads at full strength. Geist Mono keeps recent-row
+            // durations vertically aligned across the feed.
             Text(formatDuration(s.durationMinutes))
-                .font(.subheadline.monospacedDigit())
+                .font(IndexFont.monoMedium(15))
                 .foregroundStyle(.primary)
         }
         .padding(.horizontal, 12)
