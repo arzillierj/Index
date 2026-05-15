@@ -14,12 +14,32 @@ import AuthenticationServices
 /// Profile.
 @Observable
 final class AppleSignInIdentityService: IdentityService {
+    // Audit H7 — every member here is reachable from the rest of the
+    // app (ProfileService, OnboardingView). When this stub eventually
+    // becomes the live implementation, pre-flipping
+    // `AppDependencies.identity` to point here BEFORE the bodies are
+    // filled in must not trap the app. The previous fatalErrors were
+    // the kind of refactor landmine that survives a partial wiring
+    // commit and only manifests once a real user opens the app.
+    //
+    // Stubs return non-fatal default values:
+    //   - `currentUserId` → nil (caller treats as "not signed in")
+    //   - `isAuthenticated` → false
+    //   - `signIn()` → throws IdentityError.signInFailed(...)
+    //   - `signOut()` → no-op
+    //
+    // Each FUTURE comment from the original is preserved alongside.
+
     var currentUserId: String? {
-        fatalError("Pending paid Developer Program enrollment — use DevIdentityService.")
+        // FUTURE: Read the stable Apple userIdentifier from Keychain
+        //         (where signIn persisted it after first auth).
+        nil
     }
 
     var isAuthenticated: Bool {
-        fatalError("Pending paid Developer Program enrollment — use DevIdentityService.")
+        // FUTURE: provider.getCredentialState(forUserID:) check — also
+        //         used to detect revocation between sessions.
+        false
     }
 
     func signIn() async throws -> String {
@@ -28,15 +48,15 @@ final class AppleSignInIdentityService: IdentityService {
         //         to async/await with withCheckedThrowingContinuation.
         // FUTURE: Read .user (the stable userIdentifier) from the resulting
         //         ASAuthorizationAppleIDCredential, persist in Keychain
-        //         (NOT UserDefaults — Keychain survives reinstall).
+        //         (NOT UserDefaults — Keychain survives reinstall when
+        //         iCloud Keychain sync is enabled; see DevIdentityService H21).
         // FUTURE: On subsequent launches, call provider.getCredentialState
         //         to detect revocation and clear local state if needed.
-        fatalError("Pending paid Developer Program enrollment.")
+        throw IdentityError.signInFailed("Sign in with Apple isn't wired yet — pending paid Developer Program enrollment.")
     }
 
     func signOut() async {
         // FUTURE: Clear stored identifier from Keychain. Apple Sign-in itself
         //         is revoked from iOS Settings > Apple ID, not via API.
-        fatalError("Pending paid Developer Program enrollment.")
     }
 }
