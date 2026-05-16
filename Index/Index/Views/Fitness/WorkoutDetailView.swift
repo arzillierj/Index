@@ -22,11 +22,24 @@ struct WorkoutDetailView: View {
 
     @State private var showDeleteConfirm = false
 
-    // Swim-only enrichment loaded from HK on appear. Nil for non-swim
-    // workouts, manual entries, and any swim that HK can't find by UUID.
+    // Swim-only enrichment loaded from HK on appear (sets, lengths,
+    // SWOLF, pool length). Nil for non-swim workouts, manual entries,
+    // and any swim that HK can't find by UUID. NOTE: swimDetail also
+    // carries an `hrSamples` array, but the chart no longer reads it
+    // directly — `hrSeries` below is the unified source so the chart
+    // renders identically for swim and non-swim workouts.
     @State private var swimDetail: SwimDetailData? = nil
     @State private var isLoadingSwim = false
     @State private var showAutoSets = false
+
+    // Heart-rate series for ANY workout type that has HR data. Fetched
+    // live from HealthKit on appear via `fetchHRSeries(forWorkoutUUID:)`
+    // (Squash / Cycling / Running / Other) or mirrored from `swimDetail`
+    // when the workout is a swim (one HK round trip, used by both swim
+    // sets math and the chart). Empty array means no samples; nil means
+    // we haven't tried fetching yet (gates the loading spinner).
+    @State private var hrSeries: [SwimHRSample]? = nil
+    @State private var isLoadingHR = false
 
     // Data-viz colors come from IndexPalette so a future hex swap is one
     // edit; heart-rate red and SWOLF teal are stable semantic mappings.
@@ -37,9 +50,12 @@ struct WorkoutDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 heroSection
-                if session.type == .swimming {
-                    swimHeartRateSection
-                }
+                // HR chart now generic — renders for any HK workout
+                // with hasHeartRate (Squash, Cycling, Running, Other,
+                // Swimming). Gated inside `heartRateSection` on the
+                // series being non-empty, so a workout that imported
+                // without HR samples still hides the section cleanly.
+                heartRateSection
                 statsGrid
                 if session.type == .swimming, let detail = swimDetail, !detail.sets.isEmpty {
                     autoSetsRow
@@ -76,7 +92,12 @@ struct WorkoutDetailView: View {
             Text("Removes it from Index. Apple Health is unaffected.")
         }
         .task {
+            // Swim detail (sets, lengths, SWOLF) populates hrSeries
+            // as a side effect on swim workouts; the generic HR fetch
+            // runs only for non-swim HK workouts with HR data so we
+            // don't pay for a second round trip on swim.
             await loadSwimDetailIfNeeded()
+            await loadHRSeriesIfNeeded()
         }
         .sheet(isPresented: $showAutoSets) {
             if let detail = swimDetail {
@@ -85,7 +106,7 @@ struct WorkoutDetailView: View {
         }
     }
 
-    // MARK: - Swim load
+    // MARK: - HK load
 
     private var canFetchSwimDetail: Bool {
         session.type == .swimming
@@ -93,12 +114,39 @@ struct WorkoutDetailView: View {
             && (session.hkWorkoutUUID?.isEmpty == false)
     }
 
+    /// True when this workout is a non-swim HK import that should
+    /// fetch an HR series independently. Swim workouts get their
+    /// series via `loadSwimDetailIfNeeded` (one HK round trip for
+    /// both sets/lengths AND HR), so they short-circuit here.
+    private var canFetchGenericHR: Bool {
+        session.source == .healthkit
+            && session.hasHeartRate
+            && session.type != .swimming
+            && (session.hkWorkoutUUID?.isEmpty == false)
+    }
+
     private func loadSwimDetailIfNeeded() async {
         guard canFetchSwimDetail, swimDetail == nil, !isLoadingSwim else { return }
         guard let uuid = session.hkWorkoutUUID, !uuid.isEmpty else { return }
         isLoadingSwim = true
-        swimDetail = await hkService.fetchSwimDetail(forWorkoutUUID: uuid)
+        let detail = await hkService.fetchSwimDetail(forWorkoutUUID: uuid)
+        swimDetail = detail
+        // Mirror the swim series into the unified hrSeries source so
+        // `heartRateSection` reads a single property regardless of
+        // workout type. The chart layer doesn't need to know whether
+        // the data came via swimDetail or the generic HR fetch.
+        if let detail {
+            hrSeries = detail.hrSamples
+        }
         isLoadingSwim = false
+    }
+
+    private func loadHRSeriesIfNeeded() async {
+        guard canFetchGenericHR, hrSeries == nil, !isLoadingHR else { return }
+        guard let uuid = session.hkWorkoutUUID, !uuid.isEmpty else { return }
+        isLoadingHR = true
+        hrSeries = await hkService.fetchHRSeries(forWorkoutUUID: uuid)
+        isLoadingHR = false
     }
 
     // MARK: - Hero
@@ -235,14 +283,23 @@ struct WorkoutDetailView: View {
         .clipShape(.rect(cornerRadius: 12))
     }
 
-    // MARK: - Swim heart rate section (above stat grid, swim-only)
+    // MARK: - Heart rate section (above stat grid, any workout with HR)
+    //
+    // Renders for any HK-sourced workout that has heart-rate data —
+    // Squash, Cycling, Running, Other, Swimming. Hidden entirely on
+    // manual workouts (no HK UUID to look up against), on HK workouts
+    // imported without HR samples (`hasHeartRate == false`), and on
+    // any HK workout that returned an empty series despite the summary
+    // flag. The chart itself is type-agnostic — same red line, same
+    // auto-ranged axis, same "XXX BPM AVG" annotation regardless of
+    // whether the underlying activity was a pool swim or a squash match.
 
     @ViewBuilder
-    private var swimHeartRateSection: some View {
-        if session.source == .healthkit {
-            if isLoadingSwim {
+    private var heartRateSection: some View {
+        if session.source == .healthkit, session.hasHeartRate {
+            if isLoadingSwim || isLoadingHR {
                 heartRateLoading
-            } else if let samples = swimDetail?.hrSamples, !samples.isEmpty {
+            } else if let samples = hrSeries, !samples.isEmpty {
                 heartRateChart(samples: samples)
             }
             // else: no samples → hide entirely (per spec)

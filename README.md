@@ -27,7 +27,7 @@ Phases 1–7 complete + post-Phase-7 features:
 - **Centralized theme** — `IndexPalette` for colors, `IndexFont` for SF Pro typography with `.monospacedDigit()` for tabular alignment.
 - **Per-module accent tinting** — Body blue, Fitness coral, Nutrition teal; tab tint switches with the active tab.
 
-Not yet shipped: CloudKit private database sync (model shape is ready; flipping `cloudKitDatabase:` is a one-line edit when Developer Program enrollment lands), real Sign in with Apple (`AppleSignInIdentityService` exists as non-trapping stubs), imperial display units (helpers exist; no view branches on `Profile.units`), HR-series persistence on import, custom launch screen + icon.
+Not yet shipped: CloudKit private database sync (model shape is ready; flipping `cloudKitDatabase:` is a one-line edit when Developer Program enrollment lands), real Sign in with Apple (`AppleSignInIdentityService` exists as non-trapping stubs), imperial display units (helpers exist; no view branches on `Profile.units`), HR-series persistence on import (the series is fetched **live** from HealthKit when a workout-detail screen opens — see `HealthKitService.fetchHRSeries(forWorkoutUUID:)` — so the chart renders for every workout type with HR data; persistence would only be needed if we wanted the chart available offline or without HK), custom launch screen + icon.
 
 ## Build
 

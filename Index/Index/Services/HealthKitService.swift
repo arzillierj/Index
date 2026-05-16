@@ -1013,6 +1013,48 @@ extension HealthKitService {
         )
     }
 
+    /// Generic per-workout heart-rate series fetch. Looks up the
+    /// HKWorkout by UUID, then returns `(date, bpm)` samples within
+    /// its window. Works for any workout type — Squash, Cycling,
+    /// Running, Other — not just Swimming. The Swimming detail path
+    /// gets the same series as a side effect of `fetchSwimDetail`
+    /// (which also extracts laps + SWOLF + set grouping), so swim
+    /// reuses that single round trip; this generic method covers
+    /// every other type.
+    ///
+    /// Returns an empty array if HK can't find the workout or no
+    /// HR samples exist in the window. Caller is expected to gate
+    /// on `session.source == .healthkit && session.hasHeartRate`
+    /// before calling — `hasHeartRate` reflects the workout's
+    /// summary statistics from import, so an empty return here on
+    /// a `hasHeartRate == true` workout means HK trimmed the
+    /// underlying samples (rare; not worth a special UI).
+    func fetchHRSeries(forWorkoutUUID uuidString: String) async -> [SwimHRSample] {
+        guard Self.isAvailable, let uuid = UUID(uuidString: uuidString) else { return [] }
+
+        let workoutPred = HKQuery.predicateForObject(with: uuid)
+        let workout: HKWorkout? = await withCheckedContinuation { cont in
+            let q = HKSampleQuery(
+                sampleType: HKObjectType.workoutType(),
+                predicate: workoutPred,
+                limit: 1,
+                sortDescriptors: nil
+            ) { _, samples, _ in
+                cont.resume(returning: samples?.first as? HKWorkout)
+            }
+            store.execute(q)
+        }
+        guard let workout else { return [] }
+
+        return await fetchHRSamples(start: workout.startDate, end: workout.endDate)
+            .map {
+                SwimHRSample(
+                    date: $0.startDate,
+                    bpm: $0.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
+                )
+            }
+    }
+
     private func mapStroke(_ hk: HKSwimmingStrokeStyle) -> SwimStroke {
         switch hk {
         case .unknown:      return .unknown
