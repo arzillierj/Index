@@ -28,18 +28,20 @@ Index/
 ├── Index/                                          — Xcode project + sources
 │   ├── Index.xcodeproj/
 │   └── Index/
-│       ├── IndexApp.swift                          — @main, ModelContainer setup, self-healing recovery
-│       ├── ContentView.swift                       — root router (orphan / active profile / onboarding)
+│       ├── IndexApp.swift                          — @main, ModelContainer setup, service wiring, self-healing recovery
+│       ├── ContentView.swift                       — root router (hard-error / orphan / onboarding / tabs)
 │       ├── Index.entitlements                      — HealthKit + background delivery
 │       ├── Assets.xcassets/
-│       ├── Models/                                 — 10 @Model classes + IndexSchema list
-│       ├── Services/                               — HK bridge, Profile, Identity, Brain, Metrics, OFF, Format helpers
+│       ├── Models/                                 — 11 @Model classes + IndexSchema list (AIUsageRecord, Profile, WeightEntry, WorkoutSession, StrengthSession, ExercisePerformance, SetEntry, UserExercise, DailyHealthMetrics, NutritionEntry, FoodProduct)
+│       ├── Services/                               — HK bridge, Profile, Identity (Dev / AppleSignIn-stub), Brain, Metrics, Notifications, OFF, Keychain, Claude (AI macro estimator), SafeFormat
 │       └── Views/
 │           ├── Body/                               — BodyView + log / detail / history sheets
-│           ├── Fitness/                            — FitnessMainView + per-activity log sheets + WorkoutDetailView
-│           ├── Strength/                           — Active session, library, picker, detail
-│           ├── Nutrition/                          — NutritionMainView + scanner + result sheet + manual + detail
-│           └── Onboarding/                         — 8-step OnboardingView
+│           ├── Fitness/                            — FitnessMainView + per-activity log sheets + WorkoutDetailView + SwimAutoSets
+│           ├── Strength/                           — Active session, library, picker, detail, RestTimer
+│           ├── Nutrition/                          — NutritionMainView + camera (barcode + AI) + result sheet + manual + detail
+│           ├── Settings/                           — SettingsView + 10 edit sheets + HealthStatusSheet
+│           ├── Onboarding/                         — 8-step OnboardingView
+│           └── Theme/                              — IndexPalette (colors) + IndexTypography (SF Pro tokens)
 └── .git/
 ```
 
@@ -51,7 +53,10 @@ Xcode is configured with `PBXFileSystemSynchronizedRootGroup` — new `.swift` f
 |---|---|---|
 | HealthKit | ✅ entitlement + usage strings present | full read of 14 types + `bodyMass` write per the v0 pattern |
 | HealthKit background delivery | ✅ entitlement present | `com.apple.developer.healthkit.background-delivery` |
-| Camera (barcode) | ✅ wired Phase 6 | `INFOPLIST_KEY_NSCameraUsageDescription` set; AVFoundation scanner ships EAN-8/13, UPC-A/E, ITF-14, Code 128 |
+| Camera (barcode + meal photo) | ✅ wired | `INFOPLIST_KEY_NSCameraUsageDescription` describes both purposes; AVFoundation scanner ships EAN-8/13, UPC-A/E, ITF-14, Code 128; `AVCapturePhotoOutput` ships meal photos to `ClaudeService.estimateMacros` |
+| Photo Library (meal photo pick) | ✅ wired | `INFOPLIST_KEY_NSPhotoLibraryUsageDescription` set; `PhotosUI.PhotosPicker` in the camera overlay |
+| Local notifications | ✅ wired | `UNUserNotificationCenter` via `NotificationService.shared`; fires when HK observer inserts a genuinely-new workout or weigh-in (Profile-flag gated, iOS-permission gated, opt-in per type in Settings) |
+| AI macro estimator | ✅ wired | `ClaudeService` posts to `api.anthropic.com/v1/messages` (Haiku 4.5, `claude-haiku-4-5-20251001`); key in Keychain only; monthly cost cap via `AIUsageRecord` |
 | Sign in with Apple | ⏳ pending paid enrollment | JWT signing requires paid Developer Program; do NOT add `com.apple.developer.applesignin` until enrollment completes. `AppleSignInIdentityService` stub exists with **non-trapping** stubs (audit H7) — fill bodies and flip `AppDependencies.identity` as the swap |
 | iCloud / CloudKit | ⏳ pending paid enrollment | models are CloudKit-shape compliant (re-verified by audit); flipping the capability is a single `ModelConfiguration` change to add `cloudKitDatabase: .private(...)` |
 | `LSApplicationCategoryType` | ✅ set 2026-05-15 | `INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness"` for App Store submission |

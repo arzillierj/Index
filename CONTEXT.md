@@ -107,7 +107,7 @@ Three other responsibilities live here:
 
 ---
 
-## Models — 10 SwiftData classes (`Models/`)
+## Models — 11 SwiftData classes (`Models/`)
 
 All `@Model` classes follow the CloudKit-shape rules: every property has a default, every to-one relationship is optional, no `@Attribute(.unique)`. Lightweight migration only — additive changes (new fields / new types) backfill defaults automatically; renames / deletes / type changes require a redesign rather than a migration.
 
@@ -193,6 +193,11 @@ Barcode-keyed product cache. Per-100g (or per-100ml) macros. `useCount + lastUse
 `unit: String` records solid vs liquid ("g" or "ml") so cached scans default the quantity input correctly. Detection happens in `OpenFoodFactsService` — checks `product_quantity_unit` / `serving_quantity_unit` / `quantity_unit` for ml-like keywords, falls back to `categories_tags` matching a liquid set (beverages, drinks, sodas, syrups, etc.).
 
 `ScannedFood` is a separate `Sendable` value type returned by the OFF fetch (`OpenFoodFactsService.fetch(barcode:)`) — its `macros(forGrams:)` scales the per-100 values to a user-picked quantity.
+
+### `AIUsageRecord.swift`
+One row per successful Anthropic API call. `id` (UUID), `date`, `inputTokens`, `outputTokens`, `estimatedCostUSD`. The sum of `estimatedCostUSD` across rows in the current calendar month drives `ClaudeService.monthToDateSpendUSD` and the budget gate. Cost is computed at insert time from token counts × the per-million-token rates published by Anthropic; if Anthropic later changes pricing, historical rows reflect what was actually billed.
+
+SCHEMA: additive — added with the AI macro estimator foundation. Existing installs migrate cleanly via SwiftData lightweight migration (new `@Model` type, no existing rows to backfill).
 
 ---
 
@@ -402,6 +407,44 @@ OFF API client. Verbatim v0 port — `JSONSerialization` + type-tolerant `(value
 
 `OFFError` enum: `notFound`, `networkError`, `decodingFailed`.
 
+### `Keychain.swift`
+
+Thin wrapper over `SecItem*` for string-valued Keychain entries. Matches the pattern audit H21 introduced inline in `DevIdentityService`: `kSecClassGenericPassword`, `kSecAttrAccessibleAfterFirstUnlock`, `kSecAttrSynchronizable` so iCloud Keychain syncs the value across the user's devices.
+
+Static methods: `read(_ account:) -> String?`, `write(_ account:, value:) -> Bool`, `delete(_ account:)`, `has(_ account:) -> Bool`. `has` deliberately doesn't return the value — useful for UI gates that only need "is this configured" without re-reading sensitive data (Settings AI section uses this on the API key row).
+
+`service` field = `Bundle.main.bundleIdentifier` for every entry. `account` differentiates items: `index.dev.userId` for the dev identity UUID, `index.ai.anthropicAPIKey` for the AI key.
+
+`DevIdentityService` keeps its inline copy of the same calls — it predated the extraction and works as-is. New services route through this helper to avoid duplicating the `SecItem` boilerplate.
+
+### `ClaudeService.swift`
+
+Gateway to the optional AI meal-photo macro estimator. `@MainActor @Observable`. Two halves: money-safety scaffolding (Keychain key + monthly budget cap + `AIUsageRecord`-backed spend tracking) and the vision call itself.
+
+Security model documented in the file header: the Anthropic API key is stored in iOS Keychain (`index.ai.anthropicAPIKey`, `kSecAttrAccessibleAfterFirstUnlock` + iCloud sync) entered once by the user. The key is NEVER compiled into the binary, NEVER committed to git, NEVER written to a doc. This is correct for a private TestFlight app; it is NOT hacker-proof — any key shipped to a device is extractable. A true zero-extraction setup would need a backend proxy, explicitly out of scope.
+
+Money-safety surface:
+- `hasAPIKey: Bool` — observable, drives the Settings "Set" / "Configured ✓" row.
+- `setAPIKey(_:) throws` — writes to Keychain, flips `hasAPIKey`. Throws `KeyError.empty` on empty input or `.keychainWriteFailed` on the (rare) `SecItemAdd` failure.
+- `clearAPIKey()` — deletes from Keychain.
+- `apiKey() -> String?` — internal read for the vision call; Settings never reads back.
+- `monthlyBudgetUSD: Double` — read/write via UserDefaults (`ai.monthlyBudgetUSD`). Default `$2.00`.
+- `monthToDateSpendUSD(in:) -> Double` — sums `AIUsageRecord.estimatedCostUSD` for rows whose `date` is in the current month (`Calendar.dateInterval(of: .month, for: .now)`).
+- `isWithinBudget(in:) -> Bool` — strict `<` comparison so a `$0` budget always blocks.
+- `recordUsage(inputTokens:outputTokens:in:) throws` — inserts an `AIUsageRecord` row, explicit `try context.save()`. Per audit H6/H12: losing usage rows would silently bust the cap.
+- `cost(inputTokens:outputTokens:) -> Double` — pure-static math, exposed for unit tests + previews.
+
+Cost constants (per million tokens, Haiku 4.5 — `claude-haiku-4-5-20251001`, verified May 2026): `inputCostPerMTok = 1.00`, `outputCostPerMTok = 5.00`. If pricing changes, these are the single edit point.
+
+Vision call:
+- `estimateMacros(from:in:) async throws -> MacroEstimate` — pre-flight key gate (`hasAPIKey` else throw `.noAPIKey`), pre-flight budget gate (`isWithinBudget` else throw `.budgetExceeded`), downscale the image to ≤1024 px longest edge JPEG q=0.7 via `UIGraphicsImageRenderer` (scale = 1 so the output pixel count matches the requested size; default Retina would up-sample and waste tokens), POST to `https://api.anthropic.com/v1/messages` with model `claude-haiku-4-5-20251001`, `max_tokens: 512`, headers `x-api-key` / `anthropic-version: 2023-06-01` / `content-type: application/json`, message content is one image block (base64 JPEG, `media_type: image/jpeg`) + one text block with the prompt.
+- After the network call returns, decode the envelope (`AnthropicResponse` with `content: [{type, text}]` and `usage: {input_tokens, output_tokens}`), record usage IMMEDIATELY (`recordUsage(...)`) BEFORE the content parse so a parse failure still bills the row, then parse the content text — `stripCodeFences(...)` defends against ```json wrappers — into a `MacroEstimate`.
+- The model is prompted to return ONLY a JSON object of the shape `{isFood, name, kcal, protein, carbs, fat, confidence}`. `isFood: false` for non-food photos with all numeric fields zeroed; the camera UI surfaces a "doesn't look like food" inline message and stays open.
+
+Types:
+- `MacroEstimate` — `Decodable`, `Sendable`. Fields: `isFood: Bool`, `name: String`, `kcal/protein/carbs/fat: Int`, `confidence: String` ("low" / "medium" / "high"; "low" makes the result-sheet caption warning-tinted).
+- `ClaudeServiceError` — `LocalizedError`. Cases `noAPIKey`, `budgetExceeded`, `network(Error)`, `couldNotParse`, `notFood`. Each maps to a clear user-facing message via `errorDescription`.
+
 ---
 
 ## Theme (`Views/Theme/`)
@@ -476,11 +519,13 @@ Nutrition module main screen. Composition:
 - `pageTitle` — colored "Nutrition" heading (Teal).
 - `heroRow` — Calories + Protein side-by-side (each 56pt teal numeral + `/ target unit` sub-line). Calories cell includes an optional `+kcal from workouts` caption when the eat-back toggle is on AND workouts > 0.
 - `macroGrid` — Carbs / Fat tiles.
-- `actionRow` — "Scan barcode" + "Enter manually" buttons. Icons are explicit teal so they don't lose saturation through the tint cascade.
+- `actionRow` — "Camera" + "Enter manually" buttons. Icons are explicit teal so they don't lose saturation through the tint cascade. The Camera button opens the live camera screen that handles both barcode lookup (free, tap-to-confirm chip) and AI meal-photo macro estimation (cost-gated through `ClaudeService.estimateMacros`).
 - `frequentChipsSection` — behavior-based chips, top 5 labels logged in the last 30 days. Hidden when fewer than 3 distinct items qualify. Chip tap pre-fills `LogMealManualSheet` with the most-recent macros for that label.
 - `todaysLogSection` — today's `NutritionEntry` rows. VStack-based, tap opens `MealDetailView`, long-press deletes (hard delete via `context.delete`).
 
-State: `@Query allEntries`, `@Query weights`, `@Query workouts`. `computedTargets` computed once per body via `let targets = ...` and threaded through subsections (audit H18 — saves 4× MetricsEngine walks per render). Sheet sequencing uses pending-intent + `DispatchQueue.main.asyncAfter(deadline: .now() + 0.4)` because iOS won't present a sheet while the prior is dismissing.
+State: `@Query allEntries`, `@Query weights`, `@Query workouts`. `@Environment(ClaudeService.self)` for the AI flow. `computedTargets` computed once per body via `let targets = ...` and threaded through subsections (audit H18 — saves 4× MetricsEngine walks per render). Sheet sequencing uses pending-intent + `DispatchQueue.main.asyncAfter(deadline: .now() + 0.4)` because iOS won't present a sheet while the prior is dismissing.
+
+AI photo handler (`handlePhotoCaptured`): single entry point for shutter + gallery taps from the camera. Drives the camera's bindings (`aiEstimating`, `aiInlineMessage`) so the screen renders the loading state in place + non-fatal "not food" inline; queues `pendingAIEstimate` and dismisses the camera on success-with-food; surfaces an `AIErrorAlert` (noAPIKey / budgetExceeded / network / parse) with a manual-entry fallback button on hard-stop errors. `routeAfterScanner` handles three pending intents in priority order: barcode result → `ScannedBarcode` sheet, AI estimate → `LogMealManualSheet` pre-filled with name + macros + `aiConfidence` hint, manual fallback → blank `LogMealManualSheet`.
 
 ### Body sub-views
 
@@ -508,9 +553,9 @@ State: `@Query allEntries`, `@Query weights`, `@Query workouts`. `computedTarget
 
 ### Nutrition sub-views
 
-- **`BarcodeScannerView.swift`** — fullscreen camera scanner. Verbatim v0 port (AVCaptureSession setup sequence — the v2 reimplementation added rectOfInterest tuning + custom session preset that broke detection on real devices). `SwiftUI` wrapper around a `UIViewController` (`ScannerViewController` extends `AVCaptureMetadataOutputObjectsDelegate`). Detects EAN-8, EAN-13, UPC-A, UPC-E, ITF-14, Code 128. Audit H22: `onSetupFailed` callback surfaces camera-unavailable reasons (no camera, permission denied, busy).
-- **`BarcodeResultSheet.swift`** — product lookup result. Cache-first (90-day freshness window in `FoodProduct`), OFF fallback otherwise. Quantity slider 10–800 step 5 with shortcut chips (`30 / 50 / 100 / 150 / 200` g or `100 / 200 / 250 / 330 / 500` ml). Macro display scales via `food.macros(forGrams:)`. Audit H15: explicit `do/catch` on the dedup fetch (previous `try?` swallowed errors and silently double-inserted FoodProduct rows). Save increments `useCount` only on save (not on cache upsert).
-- **`LogMealManualSheet.swift`** — manual meal entry. Label required (non-empty trimmed). Kcal required and 0–5000. Macros optional 0–500 g each. Pre-fillable via `prefilledLabel` / `prefilledKcal` / `prefilledProtein` / `prefilledCarbs` / `prefilledFat` so the barcode-fallback flow (OFF not-found) and the frequent-foods chip flow can hand off label + macros to the same sheet. `editing != nil` switches to update mode (entry's own values win over pre-fills).
+- **`BarcodeScannerView.swift`** — live camera screen, despite the legacy filename. Meal capture is the default posture; barcode lookup is a quiet background offer. Full-frame camera feed, no aiming rectangle. SwiftUI wrapper around `ScannerViewController` (a `UIViewController` that conforms to both `AVCaptureMetadataOutputObjectsDelegate` for barcode detection and `AVCapturePhotoCaptureDelegate` for shutter captures). The controller attaches both an `AVCaptureMetadataOutput` (EAN-8/13, UPC-A/E, ITF-14, Code 128, throttled to 0.5s between fires of the same code) and an `AVCapturePhotoOutput`. `CameraCaptureProxy` is a tiny ref-counted class that bridges the SwiftUI overlay's shutter tap into the controller's `capturePhoto()`. Overlay controls: X close top-left, gallery (`PhotosPicker` matching `.images`) bottom-left, white-ring shutter (78pt outer / 58pt fill) bottom-center, "Snap a meal for an AI estimate" caption above the controls. Barcode chip slides up from above the controls when a code is in frame (`Barcode detected — tap to look up` on a 78%-opacity black capsule with white text); falls away after a 2-second grace period without a fresh detection; routes through `onDetect(code)` to the OpenFoodFacts result sheet only on tap (no auto-fire, so a meal photographer sweeping past a barcode doesn't get yanked into a barcode result). AI loading shows "Estimating…" on a black capsule; non-food results render an inline warning chip. Audit H22: `onSetupFailed` callback surfaces camera-unavailable reasons (no camera, permission denied, busy).
+- **`BarcodeResultSheet.swift`** — product lookup result for the barcode-chip flow. Cache-first (90-day freshness window in `FoodProduct`), OFF fallback otherwise. Quantity slider 10–800 step 5 with shortcut chips (`30 / 50 / 100 / 150 / 200` g or `100 / 200 / 250 / 330 / 500` ml). Macro display scales via `food.macros(forGrams:)`. Audit H15: explicit `do/catch` on the dedup fetch (previous `try?` swallowed errors and silently double-inserted FoodProduct rows). Save increments `useCount` only on save (not on cache upsert).
+- **`LogMealManualSheet.swift`** — manual meal entry. Label required (non-empty trimmed). Kcal required and 0–5000. Macros optional 0–500 g each. Pre-fillable via `prefilledLabel` / `prefilledKcal` / `prefilledProtein` / `prefilledCarbs` / `prefilledFat` so the barcode-fallback flow (OFF not-found), the frequent-foods chip flow, and the AI-estimate flow can hand off label + macros to the same sheet. `editing != nil` switches to update mode (entry's own values win over pre-fills). Optional `aiPrefillHint: AIPrefillHint?` parameter — when non-nil renders an "AI estimate — check the numbers" caption section at the top; "low" confidence flips the caption to warning-tinted "Double-check the numbers".
 - **`MealDetailView.swift`** — read view for a single `NutritionEntry`. Edit button delegates back to the parent via `onRequestEdit` callback (parent dismisses this sheet, then presents `LogMealManualSheet` pre-filled). Delete is hard (`context.delete`).
 
 ### Onboarding
@@ -533,7 +578,7 @@ Root `.tint(IndexPalette.Brand.primary)` so the Continue button + progress bar +
 
 ### Settings
 
-- **`SettingsView.swift`** — Phase 7 all-in-one panel. Sections (top to bottom): Profile, Goal (with the eat-back-workout-calories toggle), Modules, Manual logging, Strength exercises (link to library), Apple Health (status + sync toggles), Notifications, Data (export stub + reset), Account (sign-out + delete-account), About (version + build date).
+- **`SettingsView.swift`** — Phase 7 all-in-one panel. Sections (top to bottom): Profile, Goal (with the eat-back-workout-calories toggle), Modules, Manual logging, Strength exercises (link to library), Apple Health (status + sync toggles), Notifications, AI estimation (API key + monthly budget + month-to-date spend), Data (export stub + reset), Account (sign-out + delete-account), About (version + build date).
 
   - Field edits route to single-field sheets (`activeSheet: SheetRoute?` enum), each surfacing failures via `onError` callback to a non-blocking banner.
   - Module toggles call `profileService.setModuleEnabled` per change; `.body` is `alwaysOn = true` so it can't be turned off.
@@ -542,7 +587,9 @@ Root `.tint(IndexPalette.Brand.primary)` so the Continue button + progress bar +
   - Tint is `Module.settings` (French Blue, same as Body). X-dismiss button explicitly overrides to `Text.secondary` so it stays neutral.
   - Section caption helper centralizes the uppercase + kerning + `sectionCap` font for every section.
 
-- **Edit sheets** (`NameEditSheet`, `AgeEditSheet`, `HeightEditSheet`, `SexEditSheet`, `DirectionEditSheet`, `CalorieAdjustmentEditSheet`, `ProteinTargetEditSheet`, `TargetWeightEditSheet`) — single-field sheets following the same pattern: `FieldValidation` numeric guards (height 100–250 cm, age 13–120, calorie adjustment −1000 to +1000 in 50-kcal steps, protein 50–300 g, target weight 30–300 kg), `ProfileService.update*` on save, `onError` callback for failure banner.
+- **Edit sheets** (`NameEditSheet`, `AgeEditSheet`, `HeightEditSheet`, `SexEditSheet`, `DirectionEditSheet`, `CalorieAdjustmentEditSheet`, `ProteinTargetEditSheet`, `TargetWeightEditSheet`, `AIAPIKeyEditSheet`, `AIBudgetEditSheet`) — single-field sheets following the same pattern: `FieldValidation` numeric guards (height 100–250 cm, age 13–120, calorie adjustment −1000 to +1000 in 50-kcal steps, protein 50–300 g, target weight 30–300 kg, AI budget $0–$50 step $0.50), `ProfileService.update*` / `ClaudeService.set*` on save, `onError` callback for failure banner.
+  - `AIAPIKeyEditSheet` is the SecureField paste-in for the Anthropic key. Starts empty in both "Set" and "Configured" states — the stored key is never displayed back; the user re-pastes to change. Configured state shows a destructive "Remove key" button with a confirmation dialog.
+  - `AIBudgetEditSheet` is a Slider $0–$50 step $0.50. $0 explicitly disables the AI feature (strict `<` budget gate in `ClaudeService.isWithinBudget` always blocks). Hero readout in `IndexFont.hero` so the dollar amount reads as data.
   - `CalorieAdjustmentEditSheet` has the signed slider (negative = deficit, positive = surplus) with hint text per direction.
   - `TargetWeightEditSheet` has the `hasTargetWeight` toggle gating the numeric field — matches the onboarding pattern.
 

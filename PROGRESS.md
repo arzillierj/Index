@@ -6,11 +6,11 @@ For the product overview see `CONTEXT.md`. For the working agreement see `CLAUDE
 
 ---
 
-## Status (2026-05-15, post audit Phase 5)
+## Status (2026-05-16)
 
-- **Phases 1–6 complete + swim detail + Nutrition main hero refresh.** App builds clean (Debug + Release, zero warnings). All three modules wired end-to-end with logging + listing + detail. Apple Watch workout auto-import + historical backfill working. Barcode scanner with OFF lookup working against real products. Swimming workout detail view ships HR chart + SWOLF tile + Pool Length tile + Auto Sets sheet (per-set summary + per-length breakdown).
+- **Phases 1–7 complete + theme refresh + AI macro estimator + camera redesign.** App builds clean (Debug + Release, zero warnings). All three modules wired end-to-end with logging + listing + detail. Apple Watch workout auto-import + historical backfill working. Settings ships every Phase 7 toggle (modules, manual-logging gates, eat-back workout calories, signed calorie adjustment, notifications, AI estimator). Local notifications fire on new HK workout / weigh-in (opt-in per type). Centralized `IndexPalette` colors + `IndexFont` SF Pro typography. Per-module tab tinting.
+- **AI macro estimator shipped.** Nutrition Camera screen does both barcode lookup (free, OFF) and AI photo macro estimates (Anthropic Haiku 4.5, image downscaled, cost-gated through a monthly budget cap stored in `AIUsageRecord` rows). Camera redesigned: meal capture is the default posture, barcode is a tap-to-confirm chip that slides in when a code is detected.
 - **Audit Phase 5 complete.** 24 H-tier fixes + 1 DQ-derived schema bump + DQ8 review shipped across 5 rounds — see "Audit Phase 5" section below for the per-round commit table.
-- **Phase 7 (Settings) is next.** Fixes from the audit that were explicitly tied to Phase 7 (HK observer-stop API, Profile editing UI, "Reset all data" affordance) ship together with Settings.
 
 ### Post-Phase-7 follow-ups
 
