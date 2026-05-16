@@ -367,6 +367,19 @@ struct BodyView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+            // Two-line tile: label + value/unit/delta. Delta
+            // lives on the same line as the value+unit so a tile
+            // with a delta has the SAME height as one without —
+            // the COMPOSITION + VITALS grids stay uniform.
+            // layoutPriority:
+            //   - unit = 1  (must never clip; pattern from the
+            //     tile-fitting layout-hardening commit)
+            //   - delta = -1 (compresses BEFORE the value when
+            //     space is tight — the value owns the line; the
+            //     delta is a quiet sibling)
+            //   - value = 0 (default; shrinks via
+            //     minimumScaleFactor if both unit + delta won't
+            //     yield enough room)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(IndexFont.tileValue)
@@ -380,9 +393,11 @@ struct BodyView: View {
                         .lineLimit(1)
                         .layoutPriority(1)
                 }
-            }
-            if let delta {
-                deltaIndicator(delta)
+                if let delta {
+                    deltaIndicator(delta)
+                        .padding(.leading, 4)
+                        .layoutPriority(-1)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -404,15 +419,21 @@ struct BodyView: View {
     /// with the tile value. `monospacedDigit()` keeps numerics
     /// column-aligned across a grid row.
     private func deltaIndicator(_ delta: TileDelta) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 2) {
             Image(systemName: delta.arrowSystemName)
                 .font(IndexFont.tileUnit)
-            Text("\(delta.formattedAbs) \(delta.unit)")
+            // Empty unit (VO2 max) drops the trailing space so
+            // we don't render " 0.4 " with a dangling gap.
+            Text(delta.unit.isEmpty
+                 ? delta.formattedAbs
+                 : "\(delta.formattedAbs) \(delta.unit)")
                 .font(IndexFont.tileUnit)
                 .monospacedDigit()
         }
         .foregroundStyle(delta.isGood ? IndexPalette.Semantic.success : IndexPalette.Semantic.error)
         .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Recent entries
