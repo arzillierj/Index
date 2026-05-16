@@ -74,6 +74,7 @@ struct IndexApp: App {
         modelContainer: sharedContainer,
         notificationService: NotificationService.shared
     )
+    @State private var claudeService = ClaudeService()
 
     var body: some Scene {
         WindowGroup {
@@ -81,6 +82,7 @@ struct IndexApp: App {
                 .environment(profileService)
                 .environment(hkService)
                 .environment(notificationService)
+                .environment(claudeService)
         }
         .modelContainer(modelContainer)
     }

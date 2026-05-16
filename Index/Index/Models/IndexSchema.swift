@@ -31,6 +31,12 @@ enum IndexSchema {
             UserExercise.self,
             NutritionEntry.self,
             FoodProduct.self,
+            // SCHEMA: additive — drives the monthly cost cap on
+            // ClaudeService's AI macro-estimator feature. One row
+            // per successful API call. Existing installs migrate
+            // cleanly via SwiftData lightweight migration (new
+            // @Model type, no existing rows to backfill).
+            AIUsageRecord.self,
         ]
     }
 }

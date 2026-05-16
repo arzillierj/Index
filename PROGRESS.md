@@ -12,6 +12,10 @@ For the product overview see `CONTEXT.md`. For the working agreement see `CLAUDE
 - **Audit Phase 5 complete.** 24 H-tier fixes + 1 DQ-derived schema bump + DQ8 review shipped across 5 rounds — see "Audit Phase 5" section below for the per-round commit table.
 - **Phase 7 (Settings) is next.** Fixes from the audit that were explicitly tied to Phase 7 (HK observer-stop API, Profile editing UI, "Reset all data" affordance) ship together with Settings.
 
+### Post-Phase-7 follow-ups
+
+- **AI macro estimator — foundation.** ClaudeService revived (was deleted in audit H2 with the rest of the photo-to-macros flow). New `AIUsageRecord` SwiftData model tracks one row per successful API call; sum across the current calendar month gates the budget. Anthropic API key is stored in **Keychain** (`index.ai.anthropicAPIKey`, `kSecAttrAccessibleAfterFirstUnlock` + iCloud-Keychain sync) — never compiled in, never committed, never written to a doc. Monthly budget (UserDefaults, default $2.00) is editable via a Settings slider $0 – $50 step $0.50. Cost constants are Haiku 4.5 (claude-haiku-4-5-20251001) per-million-token rates, verified May 2026. Settings ships a new "AI estimation" section between Notifications and Data: API key row (Set / Configured ✓ — never displays the stored key back), Monthly budget row, This month spend row (renders red when over budget). **No API call wired up** in this commit — that's a follow-up. Building the cap first means the network commit cannot ship a code path that spends without a limit already in place.
+
 ---
 
 ## Phases shipped

@@ -24,6 +24,7 @@ struct SettingsView: View {
     @Environment(ProfileService.self) private var profileService
     @Environment(HealthKitService.self) private var hkService
     @Environment(NotificationService.self) private var notificationService
+    @Environment(ClaudeService.self) private var claudeService
 
     // Sheet routing state — one item per editable field. Single
     // optional binding instead of one Bool per sheet so SwiftUI never
@@ -43,6 +44,7 @@ struct SettingsView: View {
         case name, age, height, sex
         case direction, calorieAdjustment, proteinTarget, targetWeight
         case healthStatus
+        case aiAPIKey, aiBudget
         var id: String { rawValue }
     }
 
@@ -66,6 +68,7 @@ struct SettingsView: View {
                         strengthSection
                         appleHealthSection
                         notificationsSection
+                        aiSection
                         dataSection
                         accountSection
                     } else {
@@ -548,6 +551,84 @@ struct SettingsView: View {
         hkService.isAuthorized ? "Connected" : "Not connected"
     }
 
+    // MARK: - AI estimation
+    //
+    // Foundation for the optional meal-photo macro estimator. This
+    // section exposes the three controls the user needs to opt in
+    // safely: paste their Anthropic API key (stored in Keychain),
+    // set a hard monthly budget (UserDefaults), and watch the
+    // month-to-date spend climb against it (sum of AIUsageRecord
+    // rows in the current calendar month).
+    //
+    // No API call is wired up in this commit — the budget gate is
+    // built first so the follow-up vision commit cannot ship a
+    // code path that spends without a cap already enforcing it.
+
+    private var aiSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionCaption("AI estimation")
+            VStack(spacing: 0) {
+                row(
+                    label: "API key",
+                    value: claudeService.hasAPIKey ? "Configured ✓" : "Set"
+                ) {
+                    activeSheet = .aiAPIKey
+                }
+                divider
+                row(
+                    label: "Monthly budget",
+                    value: Self.formatUSD(claudeService.monthlyBudgetUSD)
+                ) {
+                    activeSheet = .aiBudget
+                }
+                divider
+                aiSpendRow
+            }
+            .background(IndexPalette.Surface.card)
+            .clipShape(.rect(cornerRadius: 12))
+            Text("Used for AI meal-photo macro estimates. Your key is stored only on this device. Estimates stop when the monthly budget is reached.")
+                .font(.caption2)
+                .foregroundStyle(IndexPalette.Text.secondary)
+                .padding(.horizontal, 4)
+        }
+    }
+
+    /// Static row (no tap target) that surfaces the month-to-date
+    /// spend against the budget. Spend turns Semantic.error red when
+    /// over budget so the user sees the cap has bitten.
+    private var aiSpendRow: some View {
+        let spend = claudeService.monthToDateSpendUSD(in: context)
+        let budget = claudeService.monthlyBudgetUSD
+        let overBudget = spend >= budget && budget > 0
+        return HStack {
+            Text("This month")
+                .font(IndexFont.rowTitle)
+                .foregroundStyle(IndexPalette.Text.primary)
+            Spacer()
+            HStack(spacing: 4) {
+                Text(Self.formatUSD(spend))
+                    .font(IndexFont.rowValue)
+                    .foregroundStyle(overBudget
+                                     ? IndexPalette.Semantic.error
+                                     : IndexPalette.Text.secondary)
+                Text("of \(Self.formatUSD(budget))")
+                    .font(IndexFont.rowSecondary)
+                    .foregroundStyle(IndexPalette.Text.secondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+    }
+
+    /// $X.XX formatter. Used by the budget row's value display + the
+    /// spend row's two figures. Locale-agnostic so the dollar sign
+    /// + two fraction digits stay stable across the user's locale —
+    /// pricing is published in USD by Anthropic, displaying as such
+    /// is honest.
+    private static func formatUSD(_ value: Double) -> String {
+        String(format: "$%.2f", value)
+    }
+
     // MARK: - Data
 
     private var dataSection: some View {
@@ -781,6 +862,8 @@ struct SettingsView: View {
         case .proteinTarget:      ProteinTargetEditSheet(onError: surfaceError)
         case .targetWeight:       TargetWeightEditSheet(onError: surfaceError)
         case .healthStatus:       HealthStatusSheet()
+        case .aiAPIKey:           AIAPIKeyEditSheet(onError: surfaceError)
+        case .aiBudget:           AIBudgetEditSheet(onError: surfaceError)
         }
     }
 

@@ -32,6 +32,7 @@ The app has shipped:
 - Phase 7 Settings: profile editing, goal direction, calorie adjustment (signed, deficit/surplus slider), protein target, target weight, module toggles, manual-logging toggles (hide Log button when off), eat-back-workout-calories toggle, Apple Health connection panel, notifications (workout + weight, async permission gating), data export stub, reset all data, sign out, delete account.
 - Local notifications when HK observer inserts a genuinely-new workout or weigh-in (gated on profile flag + iOS permission). Tap routes to the matching tab unless the app was already active.
 - Centralized color system (`IndexPalette`) and type system (`IndexFont`). SF Pro with `.monospacedDigit()` for tabular alignment (Geist Mono was tried then reverted — full-width `.` rendered "87 . 3").
+- Optional AI macro estimator (foundation). `ClaudeService` exposes a Keychain-stored Anthropic API key + a hard monthly USD budget cap (UserDefaults default $2.00) + `AIUsageRecord` rows tracking spend. Settings ships the entry UI. The actual vision API call is a follow-up commit — the budget gate is built first so no code path can ship that spends without a cap.
 - Audit Phase 5 hardening: 24 H-tier fixes + DQ-derived schema bumps across 5 rounds. See `PROGRESS.md` for the per-fix commit table.
 
 What's **not** shipped yet:
