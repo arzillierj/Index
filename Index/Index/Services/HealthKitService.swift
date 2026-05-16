@@ -95,6 +95,13 @@ final class HealthKitService {
             HKQuantityType(.distanceWalkingRunning),
             HKQuantityType(.distanceSwimming),
             HKQuantityType(.cyclingPower),
+            // Sleep analysis for the Body "Time asleep" tile.
+            // Read-only — Index never writes sleep. iOS surfaces
+            // a separate permission row for this category type
+            // on the next authorization prompt; an existing user
+            // who denies it shows the empty state (no crash, no
+            // alert — see fetchLastNightSleep handling).
+            HKCategoryType(.sleepAnalysis),
         ]
         return types
     }
@@ -1011,6 +1018,84 @@ extension HealthKitService {
             lengths: lengths,
             poolLengthMeters: detectedPoolLength
         )
+    }
+
+    /// Total time asleep for the last overnight sleep session,
+    /// or nil when there is no sleep data in the window. Powers
+    /// the Body "Time asleep" tile.
+    ///
+    /// Window: samples whose endDate is between **yesterday 18:00
+    /// local** and **today 14:00 local**. This covers a normal
+    /// evening-to-morning sleep that crosses midnight; a fixed
+    /// calendar-day predicate would miss the bulk of the
+    /// session.
+    ///
+    /// "Time asleep" semantics: sum only the **asleep** category
+    /// values (`asleepCore`, `asleepDeep`, `asleepREM`,
+    /// `asleepUnspecified`), NOT `inBed`. inBed double-counts —
+    /// it brackets the asleep samples and represents time in bed
+    /// rather than actual sleep.
+    ///
+    /// Multi-source dedup: Apple Watch + Sleep Cycle (and any
+    /// other source) often write overlapping samples for the
+    /// same night. Summing across sources double-counts. Pick
+    /// the **single source with the most coverage** for the
+    /// window (longest summed asleep duration) and sum only
+    /// that source's samples. Same principle as RENPHO's source-
+    /// bundle-id filtering on weight imports.
+    func fetchLastNightSleep() async -> TimeInterval? {
+        guard Self.isAvailable else { return nil }
+        let sleepType = HKCategoryType(.sleepAnalysis)
+
+        let cal = Calendar.current
+        let now = Date()
+        guard
+            let startOfToday = cal.date(bySettingHour: 0, minute: 0, second: 0, of: now),
+            let yesterday6pm = cal.date(byAdding: .hour, value: -6, to: startOfToday),
+            let today2pm = cal.date(bySettingHour: 14, minute: 0, second: 0, of: now)
+        else { return nil }
+
+        let pred = HKQuery.predicateForSamples(
+            withStart: yesterday6pm,
+            end: today2pm,
+            options: []
+        )
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+        let samples: [HKCategorySample] = await withCheckedContinuation { cont in
+            let q = HKSampleQuery(
+                sampleType: sleepType,
+                predicate: pred,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, samples, _ in
+                cont.resume(returning: (samples as? [HKCategorySample]) ?? [])
+            }
+            store.execute(q)
+        }
+        guard !samples.isEmpty else { return nil }
+
+        // Only count the asleep values; drop inBed entirely.
+        let asleepValues: Set<Int> = [
+            HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+            HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
+            HKCategoryValueSleepAnalysis.asleepREM.rawValue,
+            HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
+        ]
+        let asleep = samples.filter { asleepValues.contains($0.value) }
+        guard !asleep.isEmpty else { return nil }
+
+        // Group by source.bundleIdentifier; pick the bundle with
+        // the largest summed asleep duration in the window. This
+        // mirrors RENPHO's source-bundle-id filtering and keeps
+        // a single source's view of the night.
+        var byBundle: [String: TimeInterval] = [:]
+        for sample in asleep {
+            let bundle = sample.sourceRevision.source.bundleIdentifier
+            byBundle[bundle, default: 0] += sample.endDate.timeIntervalSince(sample.startDate)
+        }
+        guard let winner = byBundle.max(by: { $0.value < $1.value }) else { return nil }
+        let duration = winner.value
+        return duration > 0 ? duration : nil
     }
 
     /// Generic per-workout heart-rate series fetch. Looks up the

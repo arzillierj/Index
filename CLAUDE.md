@@ -51,7 +51,7 @@ Xcode is configured with `PBXFileSystemSynchronizedRootGroup` — new `.swift` f
 
 | Capability | Status | Notes |
 |---|---|---|
-| HealthKit | ✅ entitlement + usage strings present | full read of 14 types + `bodyMass` write per the v0 pattern |
+| HealthKit | ✅ entitlement + usage strings present | full read of 15 types (14 quantity + `sleepAnalysis` category) + `bodyMass` write per the v0 pattern |
 | HealthKit background delivery | ✅ entitlement present | `com.apple.developer.healthkit.background-delivery` |
 | Camera (barcode + meal photo) | ✅ wired | `INFOPLIST_KEY_NSCameraUsageDescription` describes both purposes; AVFoundation scanner ships EAN-8/13, UPC-A/E, ITF-14, Code 128; `AVCapturePhotoOutput` ships meal photos to `ClaudeService.estimateMacros` |
 | Photo Library (meal photo pick) | ✅ wired | `INFOPLIST_KEY_NSPhotoLibraryUsageDescription` set; `PhotosUI.PhotosPicker` in the camera overlay |

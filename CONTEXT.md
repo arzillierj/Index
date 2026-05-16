@@ -10,7 +10,7 @@ For build commands and the working agreement, see `CLAUDE.md`. For the phase log
 
 An iOS app for someone with serious gear — Apple Watch, smart scale (RENPHO), Apple Health — who wants their data **interpreted**, not just displayed. Three modules — **Body**, **Fitness**, **Nutrition** — sit on top of Apple's stack:
 
-- **HealthKit** is the data source (read 14 types, write `bodyMass` only).
+- **HealthKit** is the data source (read 15 types — 14 quantity + `sleepAnalysis` category, write `bodyMass` only).
 - **CloudKit private database** is the eventual sync layer, pending paid Developer Program enrollment. Models are CloudKit-shaped today; flipping the capability is a one-line `ModelConfiguration` change.
 - **Sign in with Apple** is the eventual identity provider, also pending enrollment. Identity sits behind a protocol so the swap is one line.
 
@@ -496,7 +496,7 @@ Body module main screen. Composition:
 - `insightSection` — Brain pill ("HRV down 12% — consider lighter training", etc.) when one fires.
 - `heroWeight` — latest weight in 56pt blue + "kg" suffix + relative date + delta-from-previous.
 - `trendChart` — 30-day weight trend (`Swift Charts`) with body-blue line + 25%-opacity area gradient. Auto-strides x-axis ticks to ~4 across the visible range.
-- `metricsSection` — BMI / BMR / TDEE / Body fat / Lean mass / Ideal range grid.
+- `metricsSection` — BMI / BMR / TDEE / Body fat / Lean mass / Time asleep grid. ("Ideal range" was replaced with "Time asleep" — the former was static + redundant with BMI; the latter reads last night's sleep from `HealthKitService.fetchLastNightSleep` and pairs with the vitals as a recovery signal.)
 - `vitalsSection` — HRV / VO2 max / Resting HR grid (3-up).
 - `recentEntriesSection` — last 5 weights as a VStack-based card. Tap opens `WeightEntryDetailSheet`. Long-press → context-menu delete. Audit DQ4 swap: VStack replaces the previous `List` because List reserves a trailing scrollbar gutter that made the card end short on the right.
 

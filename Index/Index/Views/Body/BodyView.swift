@@ -27,6 +27,13 @@ struct BodyView: View {
     @State private var showSettings = false
     @State private var selectedEntry: WeightEntry? = nil
 
+    /// Last night's time-asleep, in seconds. nil means "haven't
+    /// fetched yet" OR "no sleep data for last night" — the tile
+    /// renders the empty state for both. The tile never shows a
+    /// loading spinner; the value just appears when the fetch
+    /// returns (fast in practice).
+    @State private var lastNightSleepSeconds: TimeInterval? = nil
+
     private var profile: Profile? { profileService.activeProfile }
 
     var body: some View {
@@ -95,6 +102,24 @@ struct BodyView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
+        .task {
+            await loadLastNightSleep()
+        }
+    }
+
+    /// Pulls last night's sleep duration. In demo mode this
+    /// returns a believable synthetic value (no HK call) so the
+    /// tile in a showcase doesn't show the empty state — the
+    /// rest of the year is fabricated; sleep matches the pattern.
+    /// In real mode it hits `HealthKitService.fetchLastNightSleep`
+    /// which returns nil when there's no data / no auth — the
+    /// tile renders the "—" empty state for both cases.
+    private func loadLastNightSleep() async {
+        if DemoMode.isEnabled {
+            lastNightSleepSeconds = DemoDataService.lastNightSleepSeconds()
+            return
+        }
+        lastNightSleepSeconds = await hkService.fetchLastNightSleep()
     }
 
     // MARK: - Page title
@@ -317,7 +342,15 @@ struct BodyView: View {
                 tile(label: "TDEE", value: tdeeText, unit: "kcal")
                 tile(label: "Body fat", value: bodyFat, unit: bodyFat == "—" ? nil : "%", delta: bodyFatDelta)
                 tile(label: "Lean mass", value: leanMass, unit: leanMass == "—" ? nil : "kg", delta: leanMassDelta)
-                tile(label: "Ideal range", value: idealRangeText, unit: "kg")
+                // "Time asleep" replaces the previous "Ideal
+                // range" tile (which was static + redundant with
+                // BMI). Reads HealthKit sleepAnalysis via
+                // `HealthKitService.fetchLastNightSleep`; the
+                // common no-data case renders as "—" without
+                // changing the tile's height. No delta — sleep
+                // data is too sparse for a reliable
+                // last-vs-previous comparison.
+                tile(label: "Time asleep", value: timeAsleepText, unit: nil)
             }
         }
     }
@@ -616,6 +649,20 @@ struct BodyView: View {
             heightCm: profile.heightCm, sex: profile.sex
         )
         return "\(SafeFormat.int(range.lowerBound))–\(SafeFormat.int(range.upperBound))"
+    }
+
+    /// Last night's time asleep formatted as e.g. "7h 12m". The
+    /// dash is the empty state for "no sleep data on file" or
+    /// "no sleep auth" — never "0h 0m" (which would read as
+    /// "you didn't sleep"; absence of data is not zero sleep).
+    private var timeAsleepText: String {
+        guard let seconds = lastNightSleepSeconds, seconds > 0 else { return "—" }
+        let totalMinutes = Int((seconds / 60).rounded())
+        let h = totalMinutes / 60
+        let m = totalMinutes % 60
+        if h > 0 && m > 0 { return "\(h)h \(m)m" }
+        if h > 0 { return "\(h)h" }
+        return "\(m)m"
     }
 
     private var latestDailyMetric: DailyHealthMetrics? {

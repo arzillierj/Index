@@ -42,6 +42,24 @@ enum DemoDataService {
 
     // MARK: - Public surface
 
+    /// Believable last-night sleep duration for the demo "Time
+    /// asleep" tile. Returns a value in the 6h 20m – 8h 10m
+    /// band that drifts day-to-day so reopening the demo doesn't
+    /// always read the same number. Stable for a given calendar
+    /// day (seeded by ordinal) so multiple Body screens within
+    /// the same day are consistent. NOT seeded into HK — this
+    /// is read directly by BodyView in demo mode so the view
+    /// can stay HK-free in demo.
+    static func lastNightSleepSeconds() -> TimeInterval {
+        let cal = Calendar.current
+        let dayOrdinal = cal.ordinality(of: .day, in: .era, for: .now) ?? 0
+        var rng = SeededRNG(seed: UInt64(bitPattern: Int64(dayOrdinal)) &* 0xA5A5_A5A5)
+        // Bias toward ~7h 15m with ±55 min variance — typical
+        // adult range, not always perfectly 8h.
+        let minutes = 6 * 60 + 20 + Int(rng.nextDouble(in: 0 ... 110))
+        return TimeInterval(minutes * 60)
+    }
+
     /// True when this store already has a Profile row. Used by
     /// ContentView to gate the seeding call — the demo store is
     /// generated once per file and persisted, not regenerated

@@ -4,7 +4,7 @@ A private iOS app that interprets your body, fitness, and nutrition data instead
 
 ## What it does
 
-Three modules — **Body**, **Fitness**, **Nutrition** — sit on top of Apple's stack. HealthKit feeds in workouts (anchored observer from Apple Watch), weight + body composition (RENPHO via HK), and daily vitals (HRV / VO2 / resting HR). Index reads them, writes back only `bodyMass`, and runs a pure-function **Brain** that produces templated insight sentences per module ("HRV down 12% — consider lighter training", "Strong week — 4 sessions logged").
+Three modules — **Body**, **Fitness**, **Nutrition** — sit on top of Apple's stack. HealthKit feeds in workouts (anchored observer from Apple Watch), weight + body composition (RENPHO via HK), daily vitals (HRV / VO2 / resting HR), and last-night sleep duration. Index reads them, writes back only `bodyMass`, and runs a pure-function **Brain** that produces templated insight sentences per module ("HRV down 12% — consider lighter training", "Strong week — 4 sessions logged").
 
 Logging is fast and gym-first: the LOG button is a primary action when manual entry is enabled, hidden when automated sources are doing the work. Weights, workouts, meals, and strength sets all land in one tap from each module's main screen.
 
