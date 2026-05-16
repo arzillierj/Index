@@ -1,36 +1,60 @@
 import SwiftUI
 import AVFoundation
+import PhotosUI
+import UIKit
 
 // MARK: - Public SwiftUI wrapper
 //
-// Verbatim port of the v0 scanner from
-//   /Users/yannis/Dashboard/Dashboard/Dashboard/Views/Nutrition/BarcodeScannerView.swift
-// Same class hierarchy, same AVCaptureSession setup sequence, same
-// delegate flow. The v2 reimplementation introduced rectOfInterest,
-// focus/exposure tuning, a custom session preset, and a per-frame
-// rectOfInterest re-application — all of which combined to break
-// detection. v0 ships with none of that and scans first try on a
-// real device.
+// Live camera screen. Two paths off the same preview:
 //
-// Only intentional v2 changes vs the v0 file:
-//   - `onScan` callback renamed to `onDetect` to match the v2
-//     NutritionMainView contract (everything else about the contract
-//     is identical: barcode string in, void out).
-//   - metadataObjectTypes extended from `[.ean8, .ean13, .upce]` to
-//     also include `.itf14` and `.code128` per Phase 6 spec.
-//     `.upca` is auto-delivered as `.ean13` with a leading zero — no
-//     separate constant exists on AVMetadataObject.ObjectType.
-//   - Theme.Colors references swapped for SwiftUI defaults
-//     (`.tint` / `IndexPalette.Module.nutrition`) since v2 has no Theme module.
+//   1. Free path — barcode auto-detect. The AVCaptureMetadataOutput
+//      continuously watches the preview; on the first valid code,
+//      the session stops and `onDetect(code)` fires. Existing
+//      OpenFoodFacts lookup downstream is unchanged. No AI call,
+//      no cost.
+//
+//   2. AI path — meal-photo macro estimate. Shutter button
+//      captures a still via AVCapturePhotoOutput; the gallery
+//      button opens the photo-library picker. Both feed the
+//      same image-data closure (`onPhotoCaptured`) — the parent
+//      view (NutritionMainView) routes the data through
+//      ClaudeService.estimateMacros and shows the result sheet
+//      on success.
+//
+// File evolves the verbatim v0 BarcodeScannerView with the
+// minimum surface needed for AI capture. The barcode delegate
+// path is unchanged.
 
 struct BarcodeScannerView: View {
     let onDetect: (String) -> Void
+    /// Fires with the captured / picked image data. Parent runs
+    /// the AI estimate + handles dismissal on success.
+    let onPhotoCaptured: (Data) -> Void
     let onCancel: () -> Void
+
+    /// Overlay state while the parent's AI estimate is running.
+    /// Bound from above so the parent can keep this screen open
+    /// during the call and dismiss only on success.
+    @Binding var isEstimating: Bool
+    /// Non-blocking inline message — e.g. "That doesn't look
+    /// like food. Try another photo." Stays on the camera so the
+    /// user can retry without re-opening.
+    @Binding var inlineMessage: String?
 
     /// Surfaces a setup failure (camera busy, device-input init
     /// failed, addInput/addOutput refused) so the user sees an
     /// explanation instead of a black screen + xmark button. Audit H22.
     @State private var setupFailureReason: String? = nil
+
+    /// Proxy lets the SwiftUI overlay trigger
+    /// `ScannerViewController.capturePhoto()` without holding the
+    /// controller directly.
+    @State private var captureProxy = CameraCaptureProxy()
+
+    /// Photo-library picker selection (PhotosUI). When non-nil,
+    /// the picker loaded an image; we forward its data to
+    /// `onPhotoCaptured` and reset.
+    @State private var pickedItem: PhotosPickerItem? = nil
 
     var body: some View {
         ZStack {
@@ -41,7 +65,9 @@ struct BarcodeScannerView: View {
                     onScan: onDetect,
                     onSetupFailed: { reason in
                         setupFailureReason = reason
-                    }
+                    },
+                    onPhotoCaptured: onPhotoCaptured,
+                    captureProxy: captureProxy
                 )
                 .ignoresSafeArea()
             }
@@ -49,11 +75,26 @@ struct BarcodeScannerView: View {
             if let reason = setupFailureReason {
                 setupFailureView(reason: reason)
             } else {
-                ScannerOverlayView(onCancel: onCancel)
+                ScannerOverlayView(
+                    onCancel: onCancel,
+                    onShutter: { captureProxy.capture?() },
+                    pickedItem: $pickedItem,
+                    isEstimating: isEstimating,
+                    inlineMessage: inlineMessage
+                )
             }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden()
+        .onChange(of: pickedItem) { _, newItem in
+            guard let item = newItem else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    onPhotoCaptured(data)
+                }
+                pickedItem = nil
+            }
+        }
     }
 
     private func setupFailureView(reason: String) -> some View {
@@ -79,6 +120,21 @@ struct BarcodeScannerView: View {
     }
 }
 
+// MARK: - Capture proxy
+//
+// SwiftUI doesn't make it easy to reach into a
+// UIViewControllerRepresentable's child controller to invoke a
+// method. The proxy is a plain class with a single optional
+// closure that the controller sets at viewDidLoad time and the
+// overlay calls at shutter-tap time. Reference semantics are
+// required so updateUIViewController sees the proxy and not a
+// stale copy.
+
+@MainActor
+final class CameraCaptureProxy {
+    var capture: (() -> Void)?
+}
+
 // MARK: - Camera preview (UIViewControllerRepresentable)
 
 private struct CameraPreviewRepresentable: UIViewControllerRepresentable {
@@ -87,29 +143,56 @@ private struct CameraPreviewRepresentable: UIViewControllerRepresentable {
     /// so it can render an error surface instead of a silent black
     /// screen (audit H22).
     let onSetupFailed: (String) -> Void
+    let onPhotoCaptured: (Data) -> Void
+    let captureProxy: CameraCaptureProxy
 
     func makeUIViewController(context: Context) -> ScannerViewController {
-        ScannerViewController(onScan: onScan, onSetupFailed: onSetupFailed)
+        let vc = ScannerViewController(
+            onScan: onScan,
+            onSetupFailed: onSetupFailed,
+            onPhotoCaptured: onPhotoCaptured
+        )
+        captureProxy.capture = { [weak vc] in vc?.capturePhoto() }
+        return vc
     }
 
-    func updateUIViewController(_ vc: ScannerViewController, context: Context) {}
+    func updateUIViewController(_ vc: ScannerViewController, context: Context) {
+        // Re-bind on every SwiftUI re-eval — cheap, and survives
+        // proxy identity changes if the parent rebuilds.
+        captureProxy.capture = { [weak vc] in vc?.capturePhoto() }
+    }
 }
 
 // MARK: - Scanner view controller
+//
+// Owns the AVCaptureSession. Two outputs attached:
+//   - `AVCaptureMetadataOutput` for the barcode path (unchanged
+//     from v0).
+//   - `AVCapturePhotoOutput` for the AI path. capturePhoto()
+//     triggers a still capture; the delegate's
+//     photoOutput(_:didFinishProcessingPhoto:error:) routes the
+//     JPEG data back to SwiftUI via `onPhotoCaptured`.
 
-final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+final class ScannerViewController: UIViewController,
+    AVCaptureMetadataOutputObjectsDelegate,
+    AVCapturePhotoCaptureDelegate {
+
     private let onScan: (String) -> Void
     private let onSetupFailed: (String) -> Void
+    private let onPhotoCaptured: (Data) -> Void
     nonisolated(unsafe) private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var hasScanned = false
+    private let photoOutput = AVCapturePhotoOutput()
 
     init(
         onScan: @escaping (String) -> Void,
-        onSetupFailed: @escaping (String) -> Void
+        onSetupFailed: @escaping (String) -> Void,
+        onPhotoCaptured: @escaping (Data) -> Void
     ) {
         self.onScan = onScan
         self.onSetupFailed = onSetupFailed
+        self.onPhotoCaptured = onPhotoCaptured
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -163,25 +246,31 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
             return
         }
 
-        let output = AVCaptureMetadataOutput()
-        guard session.canAddOutput(output) else {
+        let metadataOutput = AVCaptureMetadataOutput()
+        guard session.canAddOutput(metadataOutput) else {
             onSetupFailed("Couldn't attach the barcode reader. Try again.")
             return
         }
 
-        // Atomic configuration: add input + output inside a single
+        guard session.canAddOutput(photoOutput) else {
+            onSetupFailed("Couldn't attach the photo output. Try again.")
+            return
+        }
+
+        // Atomic configuration: add input + outputs inside a single
         // begin/commit pair so the session reconfigures once. The v2
         // attempt skipped this wrapper, which can race with the
         // capture device's internal state during initial setup.
         session.beginConfiguration()
         session.addInput(input)
-        session.addOutput(output)
+        session.addOutput(metadataOutput)
+        session.addOutput(photoOutput)
         session.commitConfiguration()
 
         // Order matters: addOutput → setDelegate → metadataObjectTypes.
         // Setting types before addOutput silently drops them.
-        output.setMetadataObjectsDelegate(self, queue: .main)
-        output.metadataObjectTypes = [.ean8, .ean13, .upce, .itf14, .code128]
+        metadataOutput.setMetadataObjectsDelegate(self, queue: .main)
+        metadataOutput.metadataObjectTypes = [.ean8, .ean13, .upce, .itf14, .code128]
 
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.frame = view.bounds
@@ -193,6 +282,8 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
             self?.session.startRunning()
         }
     }
+
+    // MARK: - Barcode delegate
 
     func metadataOutput(
         _ output: AVCaptureMetadataOutput,
@@ -206,6 +297,34 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         hasScanned = true
         session.stopRunning()
         onScan(code)
+    }
+
+    // MARK: - Photo capture
+
+    /// Triggers a still capture via `AVCapturePhotoOutput`. The
+    /// JPEG data is delivered through the photo delegate below.
+    /// Idempotent — multiple rapid taps just queue captures.
+    func capturePhoto() {
+        let settings = AVCapturePhotoSettings()
+        photoOutput.capturePhoto(with: settings, delegate: self)
+    }
+
+    func photoOutput(
+        _ output: AVCapturePhotoOutput,
+        didFinishProcessingPhoto photo: AVCapturePhoto,
+        error: Error?
+    ) {
+        guard error == nil, let data = photo.fileDataRepresentation() else {
+            // Don't surface — the SwiftUI parent's "Couldn't
+            // estimate" path handles network/parse failures
+            // generically, and a capture failure feels the same
+            // to the user. Log for diagnostic.
+            print("[ScannerViewController] photo capture failed: \(String(describing: error))")
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.onPhotoCaptured(data)
+        }
     }
 
     private func showPermissionDenied() {
@@ -231,6 +350,11 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
 
 private struct ScannerOverlayView: View {
     let onCancel: () -> Void
+    let onShutter: () -> Void
+    @Binding var pickedItem: PhotosPickerItem?
+    let isEstimating: Bool
+    let inlineMessage: String?
+
     @State private var lineOffset: CGFloat = -60
 
     private let frameW: CGFloat = 280
@@ -238,7 +362,7 @@ private struct ScannerOverlayView: View {
 
     var body: some View {
         ZStack {
-            // Dark vignette with viewfinder cutout
+            // Dark vignette with viewfinder cutout.
             Color.black.opacity(0.55)
                 .ignoresSafeArea()
                 .mask(
@@ -255,9 +379,6 @@ private struct ScannerOverlayView: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(IndexPalette.Module.nutrition, lineWidth: 2)
                 .frame(width: frameW, height: frameH)
-
-            // Corner brackets
-            ScanCorners(size: frameW, height: frameH)
 
             // Moving scan line
             RoundedRectangle(cornerRadius: 1)
@@ -276,8 +397,8 @@ private struct ScannerOverlayView: View {
                 )
                 .onAppear { lineOffset = 60 }
 
-            // UI chrome
             VStack {
+                // Top chrome — close button.
                 HStack {
                     Button(action: onCancel) {
                         Image(systemName: "xmark.circle.fill")
@@ -290,51 +411,85 @@ private struct ScannerOverlayView: View {
 
                 Spacer()
 
-                Text("Scan a barcode")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.7))
+                // Inline state messages (loading or non-fatal
+                // error like not-food). Render above the bottom
+                // controls so the shutter is always reachable.
+                if isEstimating {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                        Text("Estimating…")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(.black.opacity(0.55), in: Capsule())
                     .padding(.bottom, 8)
+                } else if let inlineMessage {
+                    Text(inlineMessage)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(IndexPalette.Semantic.warning.opacity(0.85), in: Capsule())
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 8)
+                }
+
+                // Caption above the shutter row.
+                Text("Snap a meal for an AI estimate, or point at a barcode.")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 12)
+
+                // Bottom controls — gallery on the left, shutter
+                // center, balance spacer on the right. Disabled
+                // while an estimate is in-flight to prevent
+                // double-fire.
+                HStack(alignment: .center) {
+                    PhotosPicker(selection: $pickedItem, matching: .images) {
+                        Image(systemName: "photo.on.rectangle")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                    }
+                    .disabled(isEstimating)
+                    .opacity(isEstimating ? 0.4 : 1)
+
+                    Spacer()
+
+                    Button(action: onShutter) {
+                        ZStack {
+                            Circle()
+                                .stroke(Color.white, lineWidth: 4)
+                                .frame(width: 72, height: 72)
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 58, height: 58)
+                        }
+                    }
+                    .disabled(isEstimating)
+                    .opacity(isEstimating ? 0.5 : 1)
+
+                    Spacer()
+
+                    // Right-side balance for the gallery icon. Empty
+                    // 44pt slot keeps the shutter centered.
+                    Color.clear.frame(width: 44, height: 44)
+                }
+                .padding(.horizontal, 32)
+                .padding(.bottom, 24)
 
                 Text("EAN-8 · EAN-13 · UPC-A · UPC-E · ITF-14 · Code 128")
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.4))
-                    .padding(.bottom, 56)
+                    .padding(.bottom, 36)
             }
         }
-    }
-}
-
-// MARK: - Corner bracket decoration
-
-private struct ScanCorners: View {
-    let size: CGFloat
-    let height: CGFloat
-    private let len: CGFloat = 20
-    private let thick: CGFloat = 3
-
-    var body: some View {
-        ZStack {
-            // Use enumerated indices for ID — the v0 file keyed by
-            // `\.0`, but two of the four corners share the same x
-            // multiplier (-1 or 1) so SwiftUI emitted "ID -1.0
-            // occurs multiple times" at runtime.
-            ForEach(Array(corners.enumerated()), id: \.offset) { _, corner in
-                let xMul = corner.0
-                let yMul = corner.1
-                Path { path in
-                    let x = xMul * (size / 2 - 6)
-                    let y = yMul * (height / 2 - 6)
-                    path.move(to: CGPoint(x: x, y: y - yMul * len))
-                    path.addLine(to: CGPoint(x: x, y: y))
-                    path.addLine(to: CGPoint(x: x - xMul * len, y: y))
-                }
-                .stroke(IndexPalette.Module.nutrition, style: StrokeStyle(lineWidth: thick, lineCap: .round))
-            }
-        }
-        .frame(width: size, height: height)
-    }
-
-    private var corners: [(CGFloat, CGFloat)] {
-        [(-1, -1), (1, -1), (-1, 1), (1, 1)]
     }
 }

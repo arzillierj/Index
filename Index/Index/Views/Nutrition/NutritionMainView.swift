@@ -10,6 +10,7 @@ import SwiftData
 struct NutritionMainView: View {
     @Environment(\.modelContext) private var context
     @Environment(ProfileService.self) private var profileService
+    @Environment(ClaudeService.self) private var claudeService
 
     @Query(
         sort: \NutritionEntry.date,
@@ -44,6 +45,38 @@ struct NutritionMainView: View {
     @State private var pendingScannedBarcode: String? = nil
     @State private var pendingFallbackBarcode: String? = nil
 
+    // AI macro-estimator flow state.
+    //
+    // The camera screen drives `aiEstimating` (loading overlay)
+    // and `aiInlineMessage` (non-fatal "not food" message) via
+    // bindings so the parent stays in control of routing.
+    // `pendingAIEstimate` queues a successful estimate that the
+    // sheet-sequencing pattern (`routeAfterScanner`) opens after
+    // the camera dismisses. `aiErrorAlert` surfaces the hard-stop
+    // errors that need a user decision (budget reached, no key,
+    // network/parse failure).
+    @State private var aiEstimating = false
+    @State private var aiInlineMessage: String? = nil
+    @State private var aiErrorAlert: AIErrorAlert? = nil
+    @State private var pendingAIEstimate: MacroEstimate? = nil
+    @State private var pendingManualFallback: Bool = false
+
+    enum AIErrorAlert: Identifiable {
+        case noAPIKey
+        case budgetExceeded(spend: Double, budget: Double)
+        case network(String)
+        case parse
+
+        var id: String {
+            switch self {
+            case .noAPIKey:        "noAPIKey"
+            case .budgetExceeded:  "budgetExceeded"
+            case .network:         "network"
+            case .parse:           "parse"
+            }
+        }
+    }
+
     /// .sheet(item:) wrappers — small Identifiable shells so the same
     /// sheet slot can route to either a fresh entry, a barcode-fallback
     /// entry (manual, label-only), or a frequent-foods chip tap
@@ -56,6 +89,10 @@ struct NutritionMainView: View {
         var protein: Double? = nil
         var carbs: Double? = nil
         var fat: Double? = nil
+        /// Non-nil when the prefill originated from an AI photo
+        /// estimate. Drives the "AI estimate — check the numbers"
+        /// caption + warning tint inside LogMealManualSheet.
+        var aiConfidence: String? = nil
     }
     struct ScannedBarcode: Identifiable {
         let id: String
@@ -115,7 +152,10 @@ struct NutritionMainView: View {
                 prefilledKcal: prefill.kcal,
                 prefilledProtein: prefill.protein,
                 prefilledCarbs: prefill.carbs,
-                prefilledFat: prefill.fat
+                prefilledFat: prefill.fat,
+                aiPrefillHint: prefill.aiConfidence.map {
+                    LogMealManualSheet.AIPrefillHint(confidence: $0)
+                }
             )
         }
         .sheet(item: $selectedEntry, onDismiss: routeAfterDetailSheet) { entry in
@@ -141,8 +181,105 @@ struct NutritionMainView: View {
                     pendingScannedBarcode = code
                     showScanner = false
                 },
-                onCancel: { showScanner = false }
+                onPhotoCaptured: handlePhotoCaptured,
+                onCancel: { showScanner = false },
+                isEstimating: $aiEstimating,
+                inlineMessage: $aiInlineMessage
             )
+        }
+        .alert(item: $aiErrorAlert, content: makeAIErrorAlert)
+    }
+
+    /// SwiftUI alert builder for the four AI-error cases. Each
+    /// alert offers a manual-entry fallback so the user can salvage
+    /// the meal log even when the AI path is unavailable. Manual
+    /// fallback dismisses the camera first (showScanner = false),
+    /// then routeAfterScanner opens the manual entry sheet after
+    /// the dismiss completes — same pending-intent pattern the
+    /// barcode flow uses.
+    private func makeAIErrorAlert(_ alert: AIErrorAlert) -> Alert {
+        switch alert {
+        case .noAPIKey:
+            return Alert(
+                title: Text("AI estimates unavailable"),
+                message: Text("Add an Anthropic API key in Settings to use AI estimates."),
+                primaryButton: .default(Text("Enter manually"), action: requestManualFallback),
+                secondaryButton: .cancel(Text("Close"))
+            )
+        case .budgetExceeded(let spend, let budget):
+            return Alert(
+                title: Text("Monthly AI budget reached"),
+                message: Text(String(format: "Spent $%.2f of $%.2f this month. Raise it in Settings, or enter this meal manually.", spend, budget)),
+                primaryButton: .default(Text("Enter manually"), action: requestManualFallback),
+                secondaryButton: .cancel(Text("Close"))
+            )
+        case .network(let detail):
+            return Alert(
+                title: Text("Couldn't reach the estimator"),
+                message: Text(detail),
+                primaryButton: .default(Text("Enter manually"), action: requestManualFallback),
+                secondaryButton: .cancel(Text("Try again"))
+            )
+        case .parse:
+            return Alert(
+                title: Text("Couldn't estimate that photo"),
+                message: Text("The estimator returned a result we couldn't read. Try another photo or enter manually."),
+                primaryButton: .default(Text("Enter manually"), action: requestManualFallback),
+                secondaryButton: .cancel(Text("Try again"))
+            )
+        }
+    }
+
+    /// "Enter manually" tap in an AI error alert. Dismiss the
+    /// camera first; routeAfterScanner picks up the pending flag
+    /// and opens the manual entry sheet after the dismiss settles.
+    private func requestManualFallback() {
+        pendingManualFallback = true
+        showScanner = false
+    }
+
+    // MARK: - AI photo handler
+    //
+    // Single entry point for both shutter capture and gallery
+    // pick. Drives the camera's bindings (`aiEstimating`,
+    // `aiInlineMessage`) so the screen renders the loading
+    // state in place + non-fatal "not food" inline, and routes
+    // to either the result sheet (success) or an alert
+    // (hard-stop error).
+    private func handlePhotoCaptured(_ data: Data) {
+        Task {
+            aiInlineMessage = nil
+            aiEstimating = true
+            defer { aiEstimating = false }
+            do {
+                let estimate = try await claudeService.estimateMacros(
+                    from: data,
+                    in: context
+                )
+                if estimate.isFood {
+                    // Queue the estimate and dismiss; the camera's
+                    // fullScreenCover onDismiss handler routes it
+                    // to LogMealManualSheet pre-filled with the
+                    // numbers + AI confidence hint.
+                    pendingAIEstimate = estimate
+                    showScanner = false
+                } else {
+                    aiInlineMessage = "That doesn't look like food. Try another photo."
+                }
+            } catch ClaudeServiceError.noAPIKey {
+                aiErrorAlert = .noAPIKey
+            } catch ClaudeServiceError.budgetExceeded {
+                aiErrorAlert = .budgetExceeded(
+                    spend: claudeService.monthToDateSpendUSD(in: context),
+                    budget: claudeService.monthlyBudgetUSD
+                )
+            } catch ClaudeServiceError.couldNotParse {
+                aiErrorAlert = .parse
+            } catch let ClaudeServiceError.network(underlying) {
+                aiErrorAlert = .network(underlying.localizedDescription)
+            } catch {
+                aiErrorAlert = .parse
+            }
         }
     }
 
@@ -159,9 +296,13 @@ struct NutritionMainView: View {
 
     private var actionRow: some View {
         HStack(spacing: 12) {
+            // Camera covers two paths in one button: barcode
+            // auto-detect (free, OpenFoodFacts) and AI meal-photo
+            // estimate (cost-gated through ClaudeService). The
+            // user picks once and the screen handles both.
             actionButton(
-                title: "Scan barcode",
-                icon: "barcode.viewfinder",
+                title: "Camera",
+                icon: "camera",
                 action: { showScanner = true }
             )
             actionButton(
@@ -213,10 +354,37 @@ struct NutritionMainView: View {
     }
 
     private func routeAfterScanner() {
-        guard let code = pendingScannedBarcode else { return }
-        pendingScannedBarcode = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            scannedBarcode = ScannedBarcode(id: code)
+        // Three possible post-camera intents — barcode result,
+        // AI estimate, manual fallback from an AI error alert.
+        // Drain in priority order; only one can be non-nil per
+        // dismiss because the camera unsets state when it triggers
+        // showScanner = false.
+        if let code = pendingScannedBarcode {
+            pendingScannedBarcode = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                scannedBarcode = ScannedBarcode(id: code)
+            }
+            return
+        }
+        if let estimate = pendingAIEstimate {
+            pendingAIEstimate = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                manualEntryPrefill = ManualEntryPrefill(
+                    label: estimate.name,
+                    kcal: Double(estimate.kcal),
+                    protein: Double(estimate.protein),
+                    carbs: Double(estimate.carbs),
+                    fat: Double(estimate.fat),
+                    aiConfidence: estimate.confidence
+                )
+            }
+            return
+        }
+        if pendingManualFallback {
+            pendingManualFallback = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                manualEntryPrefill = ManualEntryPrefill(label: nil)
+            }
         }
     }
 

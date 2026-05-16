@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import UIKit
 
 /// Foundation for the optional AI meal-photo macro estimator.
 ///
@@ -171,5 +172,266 @@ final class ClaudeService {
 
     enum UsageError: Error {
         case saveFailed(Error)
+    }
+
+    // MARK: - Vision call (meal-photo macro estimate)
+
+    /// Anthropic model id used for the meal-photo macro estimate.
+    /// Haiku 4.5 — cheap enough that the default $2/month budget
+    /// covers ~200 photos at typical token counts.
+    static let visionModel = "claude-haiku-4-5-20251001"
+
+    /// Anthropic Messages API endpoint.
+    private static let messagesURL = URL(string: "https://api.anthropic.com/v1/messages")!
+
+    /// API version header value. Anthropic pins behavior to this
+    /// date; bump alongside any breaking-protocol change.
+    private static let anthropicVersion = "2023-06-01"
+
+    /// Pre-flight + network + parse for a single meal-photo
+    /// estimate. Pre-flights are budget gate AND key gate — both
+    /// throw without touching the network. The image is downscaled
+    /// (longest edge 1024px, JPEG q=0.7) before the request so
+    /// input-token cost stays low. After the response, usage tokens
+    /// are recorded into `AIUsageRecord` BEFORE the JSON-parse step
+    /// — the tokens were spent regardless of parse success, and
+    /// losing the usage row would silently bust the cap.
+    func estimateMacros(
+        from imageData: Data,
+        in context: ModelContext
+    ) async throws -> MacroEstimate {
+        // 1. Key gate. No key → no call.
+        guard let key = apiKey() else { throw ClaudeServiceError.noAPIKey }
+
+        // 2. Budget gate. Strict `<` so a $0 budget blocks.
+        guard isWithinBudget(in: context) else {
+            throw ClaudeServiceError.budgetExceeded
+        }
+
+        // 3. Downscale + JPEG-encode. UIImage throws lazily so a
+        //    nil decode means we got something that isn't a real
+        //    image (camera glitch, picker race). Bail with a
+        //    parse error rather than firing the network on garbage.
+        guard let source = UIImage(data: imageData) else {
+            throw ClaudeServiceError.couldNotParse
+        }
+        guard let payload = Self.downscaleJPEG(source) else {
+            throw ClaudeServiceError.couldNotParse
+        }
+
+        // 4. Build the request.
+        let base64 = payload.base64EncodedString()
+        let body: [String: Any] = [
+            "model": Self.visionModel,
+            "max_tokens": 512,
+            "messages": [
+                [
+                    "role": "user",
+                    "content": [
+                        [
+                            "type": "image",
+                            "source": [
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": base64,
+                            ] as [String: Any],
+                        ] as [String: Any],
+                        [
+                            "type": "text",
+                            "text": Self.visionPrompt,
+                        ] as [String: Any],
+                    ],
+                ] as [String: Any],
+            ],
+        ]
+        var request = URLRequest(url: Self.messagesURL)
+        request.httpMethod = "POST"
+        request.setValue(key, forHTTPHeaderField: "x-api-key")
+        request.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            throw ClaudeServiceError.network(error)
+        }
+
+        // 5. Hit the network.
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw ClaudeServiceError.network(error)
+        }
+
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            // Anthropic returns useful error text on non-2xx. Pass
+            // through as a network error so the call site surfaces
+            // a "couldn't estimate, try again" alert; user doesn't
+            // benefit from raw HTTP detail.
+            let snippet = String(data: data, encoding: .utf8)?.prefix(200) ?? "HTTP \(http.statusCode)"
+            throw ClaudeServiceError.network(NSError(
+                domain: "Anthropic",
+                code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: String(snippet)]
+            ))
+        }
+
+        // 6. Record usage IMMEDIATELY — before parsing the
+        //    content. Tokens were spent; losing the row on a
+        //    parse failure would silently bust the cap. The
+        //    helper short-circuits if `usage` is missing
+        //    (recordUsage(0, 0) is a no-op cost-wise).
+        let envelope: AnthropicResponse
+        do {
+            envelope = try JSONDecoder().decode(AnthropicResponse.self, from: data)
+        } catch {
+            throw ClaudeServiceError.couldNotParse
+        }
+        do {
+            try recordUsage(
+                inputTokens: envelope.usage?.input_tokens ?? 0,
+                outputTokens: envelope.usage?.output_tokens ?? 0,
+                in: context
+            )
+        } catch {
+            // Don't abort the estimate on a save failure — log
+            // and continue. The user's photo is mid-flight; the
+            // cost row dropping is a worse bug than the UX of
+            // discarding their result.
+            print("[ClaudeService] recordUsage failed (estimate continues): \(error)")
+        }
+
+        // 7. Parse the JSON estimate. The model is instructed to
+        //    return bare JSON but may wrap it in ```json fences;
+        //    strip them defensively before decoding.
+        guard let assistantText = envelope.content.first(where: { $0.type == "text" })?.text else {
+            throw ClaudeServiceError.couldNotParse
+        }
+        let cleaned = Self.stripCodeFences(assistantText)
+        let estimate: MacroEstimate
+        do {
+            estimate = try JSONDecoder().decode(MacroEstimate.self, from: Data(cleaned.utf8))
+        } catch {
+            throw ClaudeServiceError.couldNotParse
+        }
+        return estimate
+    }
+
+    // MARK: - Vision helpers (file-private static)
+
+    /// The prompt sent alongside the image block. Single text
+    /// block per Anthropic Messages API; the model returns one
+    /// content text block in response. Keep this string in lockstep
+    /// with `MacroEstimate`'s CodingKeys so the round-trip stays
+    /// stable. Updating one without the other breaks parsing.
+    private static let visionPrompt: String = """
+    You are a nutrition estimator. The image should show a meal or food item. Respond with ONLY a JSON object, no prose, no markdown fences, in exactly this shape:
+    {"isFood": true/false, "name": "short label", "kcal": int, "protein": int, "carbs": int, "fat": int, "confidence": "low"/"medium"/"high"}
+    If the image does not show food, return isFood false and set all numeric fields to 0. Estimate macros for the full portion visible. Grams for protein/carbs/fat, kilocalories for kcal.
+    """
+
+    /// Resizes so the longest edge is ≤ `longestEdge`, JPEG-encodes
+    /// at `quality`. Skips the resize when the source is already
+    /// smaller (small camera frames on older devices). UIGraphics
+    /// renderer uses scale 1 so the output pixel count matches the
+    /// requested size; the default Retina scale would up-sample by
+    /// 2× or 3× and waste tokens.
+    private static func downscaleJPEG(
+        _ image: UIImage,
+        longestEdge: CGFloat = 1024,
+        quality: CGFloat = 0.7
+    ) -> Data? {
+        let size = image.size
+        let scale = min(longestEdge / max(size.width, size.height), 1.0)
+        let target: CGSize
+        let rendered: UIImage
+        if scale >= 1.0 {
+            rendered = image
+            target = size
+        } else {
+            target = CGSize(width: size.width * scale, height: size.height * scale)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let renderer = UIGraphicsImageRenderer(size: target, format: format)
+            rendered = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: target))
+            }
+        }
+        return rendered.jpegData(compressionQuality: quality)
+    }
+
+    /// Strips a ```json ... ``` or ``` ... ``` wrap if the model
+    /// returned one despite the prompt. Conservative — only strips
+    /// the outer fence pair when both ends match.
+    private static func stripCodeFences(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("```") {
+            // Drop the opening fence + optional language tag through
+            // the first newline.
+            if let newlineIdx = s.firstIndex(of: "\n") {
+                s = String(s[s.index(after: newlineIdx)...])
+            }
+            if s.hasSuffix("```") {
+                s = String(s.dropLast(3))
+            }
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Decoding shapes (internal-only)
+
+    private struct AnthropicResponse: Decodable {
+        struct ContentBlock: Decodable {
+            let type: String
+            let text: String?
+        }
+        struct Usage: Decodable {
+            let input_tokens: Int
+            let output_tokens: Int
+        }
+        let content: [ContentBlock]
+        let usage: Usage?
+    }
+}
+
+/// Parsed meal-photo estimate. Confidence is a free-form string
+/// from the model — "low" / "medium" / "high" per the prompt
+/// contract. The result sheet surfaces "low" with a warning tint
+/// so the user knows to scrutinise.
+struct MacroEstimate: Decodable, Sendable {
+    let isFood: Bool
+    let name: String
+    let kcal: Int
+    let protein: Int
+    let carbs: Int
+    let fat: Int
+    let confidence: String
+}
+
+/// Errors surfaced by `ClaudeService.estimateMacros`. Each maps to
+/// a specific UI message; cases stay coarse so the call site
+/// (CameraView's error branching) doesn't need to inspect inner
+/// detail.
+enum ClaudeServiceError: Error, LocalizedError {
+    case noAPIKey
+    case budgetExceeded
+    case network(Error)
+    case couldNotParse
+    case notFood
+
+    var errorDescription: String? {
+        switch self {
+        case .noAPIKey:
+            return "Add an Anthropic API key in Settings to use AI estimates."
+        case .budgetExceeded:
+            return "You've reached this month's AI budget. Raise it in Settings or enter the meal manually."
+        case .network(let underlying):
+            return "Couldn't reach the estimator (\(underlying.localizedDescription))."
+        case .couldNotParse:
+            return "Couldn't estimate that photo. Try again, or enter manually."
+        case .notFood:
+            return "That doesn't look like food. Try another photo."
+        }
     }
 }

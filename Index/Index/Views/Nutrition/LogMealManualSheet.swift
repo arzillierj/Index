@@ -25,6 +25,17 @@ struct LogMealManualSheet: View {
     var prefilledProtein: Double? = nil
     var prefilledCarbs:   Double? = nil
     var prefilledFat:     Double? = nil
+    /// Optional hint when the pre-fill came from the AI estimator
+    /// rather than a barcode lookup or frequent-foods chip. Drives
+    /// a small "AI estimate — check the numbers" caption at the
+    /// top of the form. `confidence` is the model's self-reported
+    /// confidence string ("low"/"medium"/"high"); "low" makes the
+    /// caption warning-tinted so the user knows to scrutinise.
+    var aiPrefillHint: AIPrefillHint? = nil
+
+    struct AIPrefillHint: Equatable {
+        let confidence: String
+    }
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -89,6 +100,11 @@ struct LogMealManualSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let hint = aiPrefillHint {
+                    Section {
+                        aiCaption(hint: hint)
+                    }
+                }
                 Section("Food") {
                     TextField("Label (e.g. Oatmeal with banana)", text: $label)
                         .focused($focusedField, equals: .label)
@@ -160,6 +176,29 @@ struct LogMealManualSheet: View {
             }
             .onAppear(perform: prefill)
         }
+    }
+
+    /// "AI estimate — check the numbers before saving." Warning-tinted
+    /// for low-confidence results so the user double-checks.
+    @ViewBuilder
+    private func aiCaption(hint: AIPrefillHint) -> some View {
+        let isLow = hint.confidence.lowercased() == "low"
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isLow ? "exclamationmark.triangle.fill" : "sparkle")
+                .foregroundStyle(isLow
+                                 ? IndexPalette.Semantic.warning
+                                 : IndexPalette.Module.nutrition)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("AI estimate")
+                    .font(.subheadline.weight(.semibold))
+                Text(isLow
+                     ? "Low confidence — double-check the numbers before saving."
+                     : "Check the numbers before saving.")
+                    .font(.caption)
+                    .foregroundStyle(IndexPalette.Text.secondary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     private func prefill() {
