@@ -5,27 +5,33 @@ import UIKit
 
 // MARK: - Public SwiftUI wrapper
 //
-// Live camera screen. Two paths off the same preview:
+// Live camera screen. Meal-photo capture is the default posture;
+// barcode lookup is a quiet background offer.
 //
-//   1. Free path — barcode auto-detect. The AVCaptureMetadataOutput
-//      continuously watches the preview; on the first valid code,
-//      the session stops and `onDetect(code)` fires. Existing
-//      OpenFoodFacts lookup downstream is unchanged. No AI call,
-//      no cost.
+//   1. Free path — barcode tap-to-confirm. The metadata output
+//      watches the full camera feed continuously (no aiming
+//      rectangle — AVFoundation never needed one). When a code is
+//      detected, a chip slides up above the bottom controls
+//      ("Barcode detected — tap to look up"). The chip stays
+//      visible while detections keep arriving and slides away
+//      after a 2-second grace period without a fresh detection.
+//      Tapping the chip routes through `onDetect` to the existing
+//      OpenFoodFacts lookup. Auto-fire is deliberately removed —
+//      a meal photographer sweeping across a table should not get
+//      yanked into a barcode result they didn't ask for.
 //
 //   2. AI path — meal-photo macro estimate. Shutter button
 //      captures a still via AVCapturePhotoOutput; the gallery
-//      button opens the photo-library picker. Both feed the
-//      same image-data closure (`onPhotoCaptured`) — the parent
-//      view (NutritionMainView) routes the data through
+//      button opens the photo-library picker. Both feed the same
+//      image-data closure (`onPhotoCaptured`) — the parent view
+//      (NutritionMainView) routes the data through
 //      ClaudeService.estimateMacros and shows the result sheet
 //      on success.
-//
-// File evolves the verbatim v0 BarcodeScannerView with the
-// minimum surface needed for AI capture. The barcode delegate
-// path is unchanged.
 
 struct BarcodeScannerView: View {
+    /// Called when the user taps the barcode chip — semantics
+    /// changed from the original auto-fire flow. Detection alone
+    /// no longer triggers this; user confirmation does.
     let onDetect: (String) -> Void
     /// Fires with the captured / picked image data. Parent runs
     /// the AI estimate + handles dismissal on success.
@@ -56,13 +62,31 @@ struct BarcodeScannerView: View {
     /// `onPhotoCaptured` and reset.
     @State private var pickedItem: PhotosPickerItem? = nil
 
+    /// The barcode currently "available" to the user — set when
+    /// the metadata delegate sees a code, cleared 2s after the
+    /// last fresh detection. nil = no chip visible.
+    @State private var detectedBarcode: String? = nil
+
+    /// Grace-period task. Cancelled and re-spawned on every fresh
+    /// detection so a continuously-in-frame barcode keeps the
+    /// chip alive; stale detections (barcode left frame) fall
+    /// through the 2-second sleep and clear the state.
+    @State private var graceTask: Task<Void, Never>? = nil
+
+    /// 2-second grace period before a stale detection drops away.
+    /// Long enough to span the gap between AVFoundation's last
+    /// in-frame fire and the user noticing the chip; short enough
+    /// that a fleeting drift across frame doesn't leave a stale
+    /// invitation hanging.
+    private static let chipGracePeriod: Duration = .seconds(2)
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
             if setupFailureReason == nil {
                 CameraPreviewRepresentable(
-                    onScan: onDetect,
+                    onScan: receiveDetection,
                     onSetupFailed: { reason in
                         setupFailureReason = reason
                     },
@@ -78,9 +102,11 @@ struct BarcodeScannerView: View {
                 ScannerOverlayView(
                     onCancel: onCancel,
                     onShutter: { captureProxy.capture?() },
+                    onBarcodeChipTapped: confirmDetectedBarcode,
                     pickedItem: $pickedItem,
                     isEstimating: isEstimating,
-                    inlineMessage: inlineMessage
+                    inlineMessage: inlineMessage,
+                    detectedBarcode: detectedBarcode
                 )
             }
         }
@@ -95,6 +121,35 @@ struct BarcodeScannerView: View {
                 pickedItem = nil
             }
         }
+        .onDisappear {
+            graceTask?.cancel()
+        }
+    }
+
+    /// Per-detection callback from the controller. Sets the chip
+    /// state + restarts the grace-period clock. Ignored while
+    /// the parent's AI estimate is in flight so the chip doesn't
+    /// surface during the loading state (shutter is disabled
+    /// then too — keep the screen single-tasked).
+    private func receiveDetection(_ code: String) {
+        guard !isEstimating else { return }
+        detectedBarcode = code
+        graceTask?.cancel()
+        graceTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.chipGracePeriod)
+            guard !Task.isCancelled else { return }
+            detectedBarcode = nil
+        }
+    }
+
+    /// Chip tap — user confirms the barcode lookup. Clears state
+    /// + routes to the parent's existing `onDetect` callback
+    /// (which kicks off the OpenFoodFacts lookup).
+    private func confirmDetectedBarcode() {
+        guard let code = detectedBarcode else { return }
+        graceTask?.cancel()
+        detectedBarcode = nil
+        onDetect(code)
     }
 
     private func setupFailureView(reason: String) -> some View {
@@ -158,7 +213,12 @@ private struct CameraPreviewRepresentable: UIViewControllerRepresentable {
 
     func updateUIViewController(_ vc: ScannerViewController, context: Context) {
         // Re-bind on every SwiftUI re-eval — cheap, and survives
-        // proxy identity changes if the parent rebuilds.
+        // proxy identity changes if the parent rebuilds. The
+        // controller-side onScan stays bound to the closure we
+        // passed in makeUIViewController; if SwiftUI re-evals
+        // change it, we lose the new identity here. Acceptable
+        // because the closure body just calls the same parent
+        // method (receiveDetection); no captured state drifts.
         captureProxy.capture = { [weak vc] in vc?.capturePhoto() }
     }
 }
@@ -166,8 +226,11 @@ private struct CameraPreviewRepresentable: UIViewControllerRepresentable {
 // MARK: - Scanner view controller
 //
 // Owns the AVCaptureSession. Two outputs attached:
-//   - `AVCaptureMetadataOutput` for the barcode path (unchanged
-//     from v0).
+//   - `AVCaptureMetadataOutput` for the barcode path. Calls back
+//     on every detection (throttled to ≥0.5s between fires of
+//     the same code so we don't flood the SwiftUI parent's
+//     re-render loop). Does NOT stop the session — the camera
+//     keeps running so the user can also shutter a meal photo.
 //   - `AVCapturePhotoOutput` for the AI path. capturePhoto()
 //     triggers a still capture; the delegate's
 //     photoOutput(_:didFinishProcessingPhoto:error:) routes the
@@ -182,8 +245,15 @@ final class ScannerViewController: UIViewController,
     private let onPhotoCaptured: (Data) -> Void
     nonisolated(unsafe) private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private var hasScanned = false
     private let photoOutput = AVCapturePhotoOutput()
+
+    /// Last code we surfaced + when, for throttling. AVFoundation
+    /// can fire metadata at the camera's frame rate (~30 Hz) when
+    /// a barcode sits in view; the chip's grace-period timer only
+    /// needs a tick every second or so to stay alive.
+    private var lastReportedCode: String?
+    private var lastReportedAt: Date = .distantPast
+    private static let reportThrottle: TimeInterval = 0.5
 
     init(
         onScan: @escaping (String) -> Void,
@@ -290,12 +360,20 @@ final class ScannerViewController: UIViewController,
         didOutput objects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
-        guard !hasScanned,
-              let obj = objects.first as? AVMetadataMachineReadableCodeObject,
-              let code = obj.stringValue
-        else { return }
-        hasScanned = true
-        session.stopRunning()
+        guard let obj = objects.first as? AVMetadataMachineReadableCodeObject,
+              let code = obj.stringValue else { return }
+        // Throttle: a new code fires immediately; the same code
+        // re-firing only ticks every reportThrottle seconds so the
+        // SwiftUI parent doesn't redraw the chip 30× per second.
+        // The grace-period timer in the SwiftUI side only needs a
+        // tick every couple of seconds to stay alive.
+        let now = Date.now
+        if code == lastReportedCode,
+           now.timeIntervalSince(lastReportedAt) < Self.reportThrottle {
+            return
+        }
+        lastReportedCode = code
+        lastReportedAt = now
         onScan(code)
     }
 
@@ -347,149 +425,136 @@ final class ScannerViewController: UIViewController,
 }
 
 // MARK: - SwiftUI overlay
+//
+// Meal-capture-first overlay. No framing rectangle, no scan
+// line, no vignette — the camera feed shows full-frame and
+// undimmed. The barcode capability is a tap-to-confirm chip that
+// only appears when a code is actually in frame (parent-managed
+// via `detectedBarcode`).
 
 private struct ScannerOverlayView: View {
     let onCancel: () -> Void
     let onShutter: () -> Void
+    let onBarcodeChipTapped: () -> Void
     @Binding var pickedItem: PhotosPickerItem?
     let isEstimating: Bool
     let inlineMessage: String?
-
-    @State private var lineOffset: CGFloat = -60
-
-    private let frameW: CGFloat = 280
-    private let frameH: CGFloat = 140
+    /// nil → no chip. Non-nil → chip slides up offering the
+    /// lookup for this code. The parent owns the grace-period
+    /// clock; this view only renders.
+    let detectedBarcode: String?
 
     var body: some View {
-        ZStack {
-            // Dark vignette with viewfinder cutout.
-            Color.black.opacity(0.55)
-                .ignoresSafeArea()
-                .mask(
-                    Rectangle()
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .frame(width: frameW, height: frameH)
-                                .blendMode(.destinationOut)
-                        )
-                        .compositingGroup()
-                )
-
-            // Scan frame
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(IndexPalette.Module.nutrition, lineWidth: 2)
-                .frame(width: frameW, height: frameH)
-
-            // Moving scan line
-            RoundedRectangle(cornerRadius: 1)
-                .fill(
-                    LinearGradient(
-                        colors: [.clear, IndexPalette.Module.nutrition, .clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: frameW - 16, height: 2)
-                .offset(y: lineOffset)
-                .animation(
-                    .easeInOut(duration: 1.6).repeatForever(autoreverses: true),
-                    value: lineOffset
-                )
-                .onAppear { lineOffset = 60 }
-
-            VStack {
-                // Top chrome — close button.
-                HStack {
-                    Button(action: onCancel) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
-                    .padding(20)
-                    Spacer()
+        VStack {
+            // Top chrome — close button.
+            HStack {
+                Button(action: onCancel) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.white.opacity(0.85))
                 }
+                .padding(20)
+                Spacer()
+            }
+
+            Spacer()
+
+            // Inline state messages (loading or non-fatal error
+            // like not-food). Render above the bottom controls
+            // so the shutter is always reachable.
+            if isEstimating {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                    Text("Estimating…")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.black.opacity(0.55), in: Capsule())
+                .padding(.bottom, 8)
+            } else if let inlineMessage {
+                Text(inlineMessage)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(IndexPalette.Semantic.warning.opacity(0.85), in: Capsule())
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 8)
+            }
+
+            // Barcode chip — slides in from the bottom edge when
+            // a code is in frame; slides out when the grace
+            // period elapses. Disabled during an in-flight AI
+            // estimate so the screen stays single-tasked.
+            if detectedBarcode != nil {
+                Button(action: onBarcodeChipTapped) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "barcode.viewfinder")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("Barcode detected — tap to look up")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(.black.opacity(0.78), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isEstimating)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            // Caption above the shutter row.
+            Text("Snap a meal for an AI estimate")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .padding(.bottom, 12)
+
+            // Bottom controls — gallery on the left, shutter
+            // center, balance spacer on the right. Disabled while
+            // an estimate is in-flight to prevent double-fire.
+            HStack(alignment: .center) {
+                PhotosPicker(selection: $pickedItem, matching: .images) {
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.system(size: 26))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(isEstimating)
+                .opacity(isEstimating ? 0.4 : 1)
 
                 Spacer()
 
-                // Inline state messages (loading or non-fatal
-                // error like not-food). Render above the bottom
-                // controls so the shutter is always reachable.
-                if isEstimating {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                        Text("Estimating…")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white)
+                Button(action: onShutter) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white, lineWidth: 4)
+                            .frame(width: 72, height: 72)
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 58, height: 58)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.black.opacity(0.55), in: Capsule())
-                    .padding(.bottom, 8)
-                } else if let inlineMessage {
-                    Text(inlineMessage)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(IndexPalette.Semantic.warning.opacity(0.85), in: Capsule())
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 8)
                 }
+                .disabled(isEstimating)
+                .opacity(isEstimating ? 0.5 : 1)
 
-                // Caption above the shutter row.
-                Text("Snap a meal for an AI estimate, or point at a barcode.")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 12)
+                Spacer()
 
-                // Bottom controls — gallery on the left, shutter
-                // center, balance spacer on the right. Disabled
-                // while an estimate is in-flight to prevent
-                // double-fire.
-                HStack(alignment: .center) {
-                    PhotosPicker(selection: $pickedItem, matching: .images) {
-                        Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 26))
-                            .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                    }
-                    .disabled(isEstimating)
-                    .opacity(isEstimating ? 0.4 : 1)
-
-                    Spacer()
-
-                    Button(action: onShutter) {
-                        ZStack {
-                            Circle()
-                                .stroke(Color.white, lineWidth: 4)
-                                .frame(width: 72, height: 72)
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 58, height: 58)
-                        }
-                    }
-                    .disabled(isEstimating)
-                    .opacity(isEstimating ? 0.5 : 1)
-
-                    Spacer()
-
-                    // Right-side balance for the gallery icon. Empty
-                    // 44pt slot keeps the shutter centered.
-                    Color.clear.frame(width: 44, height: 44)
-                }
-                .padding(.horizontal, 32)
-                .padding(.bottom, 24)
-
-                Text("EAN-8 · EAN-13 · UPC-A · UPC-E · ITF-14 · Code 128")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .padding(.bottom, 36)
+                // Right-side balance for the gallery icon. Empty
+                // 44pt slot keeps the shutter centered.
+                Color.clear.frame(width: 44, height: 44)
             }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 36)
         }
+        .animation(.easeOut(duration: 0.25), value: detectedBarcode)
     }
 }
