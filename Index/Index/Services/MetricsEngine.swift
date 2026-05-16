@@ -91,10 +91,25 @@ enum MetricsEngine {
         // flagged migration in ContentView.task negates any existing
         // positive values from the old convention.
         let adjustment = profile.calorieAdjustmentKcal
-        let safeFloor = max(1200, bmrValue * 1.1)
 
-        // Base = TDEE + signed adjustment, never below safety floor.
-        let caloriesBase = max(safeFloor, tdeeValue + adjustment)
+        // Base = TDEE + signed adjustment. Honest, linear, no
+        // silent clamp.
+        //
+        // History: an earlier version applied a `max(1200, BMR *
+        // 1.1)` soft floor here, intended as a safety guard. In
+        // practice the BMR*1.1 term landed ~2100 kcal for a
+        // typical adult, so a user choosing -1000 on a 2674
+        // TDEE got 2139 back (clamped) instead of 1674. The
+        // floor silently overrode the user's stated intent — a
+        // correctness bug, not a guardrail. Removed.
+        //
+        // Safety is now upstream: the CalorieAdjustmentEditSheet
+        // slider is bounded to [-1000, +1000] in 50-kcal steps,
+        // so even the most aggressive user-selectable deficit
+        // can't drive the target below ~TDEE - 1000. That's the
+        // floor — chosen by the user, visible on the slider,
+        // honored by the math.
+        let caloriesBase = tdeeValue + adjustment
 
         // Workout calories — Ainsworth 2011 MET values × bodyweight × hours.
         // DECISION: v2 doesn't track avg power, so the v0 "cycling vigorous
