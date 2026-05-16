@@ -122,6 +122,10 @@ struct NutritionMainView: View {
         // the system nav-bar collapses to inline (toolbar buttons
         // only) so the colored "Nutrition" hero leads the screen.
         .navigationBarTitleDisplayMode(.inline)
+        // Section 2 layout-hardening — see BodyView. Visible nav-bar
+        // background stops scrolling content at the safe-area edge
+        // instead of letting it slide under the status bar.
+        .toolbarBackground(.visible, for: .navigationBar)
         // DECISION: No toolbar "Log" button. Phase 6 ships with two
         // first-class action buttons on the main screen itself (Scan
         // barcode / Enter manually) — duplicating either as a toolbar
@@ -290,6 +294,8 @@ struct NutritionMainView: View {
             .font(.largeTitle.weight(.bold))
             .foregroundStyle(IndexPalette.Module.nutrition)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Breathing room above the cap-height — see BodyView.
+            .padding(.top, 6)
     }
 
     // MARK: - Action row
@@ -609,17 +615,25 @@ struct NutritionMainView: View {
         }
     }
 
+    /// Section 4 layout-hardening: numeral scales down, unit
+    /// stays pinned with `layoutPriority(1)`.
     private func macroTile(label: String, value: Double) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(SafeFormat.int(value))
                     .font(IndexFont.tileValue)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 Text("g")
                     .font(IndexFont.tileUnit)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

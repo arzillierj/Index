@@ -64,13 +64,19 @@ struct StrengthSessionDetailView: View {
         }
     }
 
+    /// Section 4 layout-hardening: numeral scales down under
+    /// Dynamic Type / long values rather than clipping.
     private func statTile(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Text(value)
                 .font(IndexFont.tileValue)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)

@@ -99,15 +99,27 @@ struct WorkoutDetailView: View {
 
     private var heroSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(absoluteDateString(session.date))
-                .font(IndexFont.heroCaption)
-                .foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(formatDuration(session.durationMinutes))
-                    .font(IndexFont.hero)
-                Spacer()
+            // Section 6 layout-hardening: the "Apple Health" /
+            // "Manual" attribution sits on the date line, not as a
+            // trailing chip pressed against the duration hero. The
+            // hero now has the whole row to itself (and is free to
+            // scale down via .minimumScaleFactor if the duration
+            // string is long, e.g. "2h 53m"); attribution reads as
+            // a quiet sibling of the date.
+            HStack(spacing: 8) {
+                Text(absoluteDateString(session.date))
+                    .font(IndexFont.heroCaption)
+                    .foregroundStyle(.secondary)
+                Text("·")
+                    .font(IndexFont.heroCaption)
+                    .foregroundStyle(.tertiary)
                 sourceBadge
+                Spacer(minLength: 0)
             }
+            Text(formatDuration(session.durationMinutes))
+                .font(IndexFont.hero)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             if session.hasIntensity {
                 Text("Intensity \(session.intensity) / 5")
                     .font(IndexFont.heroCaption)
@@ -118,40 +130,71 @@ struct WorkoutDetailView: View {
 
     private var sourceBadge: some View {
         Text(session.source == .healthkit ? "Apple Health" : "Manual")
-            .font(.caption2.monospaced())
+            .font(IndexFont.heroCaption)
             .foregroundStyle(.tertiary)
     }
 
     // MARK: - Stats
 
+    /// Stat tiles available for this session. Each `statCell` is a
+    /// rendered tile view, sequenced in display order. Order
+    /// matters — pairs walk left-to-right, top-to-bottom; an odd
+    /// trailing cell spans both columns so we never leave a half-
+    /// width orphan card (Section 5 layout-hardening: Cycling's
+    /// 2+1 layout used to drop the third tile alone on the bottom
+    /// row).
+    private var statCells: [AnyView] {
+        var cells: [AnyView] = []
+        if session.hasHeartRate {
+            cells.append(AnyView(statTile(label: "Avg HR", value: "\(session.avgHeartRate)", unit: "bpm")))
+        }
+        if session.hasMaxHeartRate {
+            cells.append(AnyView(statTile(label: "Max HR", value: "\(session.maxHeartRate)", unit: "bpm")))
+        }
+        if session.hasKcal {
+            cells.append(AnyView(statTile(label: "Energy", value: SafeFormat.int(session.kcalBurned), unit: "kcal")))
+        }
+        if session.hasDistance {
+            cells.append(AnyView(statTile(label: "Distance", value: SafeFormat.decimal(session.distanceKm), unit: "km")))
+        }
+        if session.type == .swimming, let avgSwolf = swimDetail?.avgSWOLF {
+            cells.append(AnyView(statTile(label: "Avg SWOLF", value: SafeFormat.int(avgSwolf), unit: nil, valueColor: Self.swolfTeal)))
+        }
+        if session.type == .swimming, let pool = swimDetail?.poolLengthMeters {
+            // Neutral value color (default Color.primary) — teal stays
+            // exclusive to SWOLF as the swim-efficiency metric.
+            cells.append(AnyView(statTile(label: "Pool Length", value: "\(Int(pool.rounded()))", unit: "m")))
+        }
+        return cells
+    }
+
+    @ViewBuilder
     private var statsGrid: some View {
-        LazyVGrid(
-            columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-            spacing: 10
-        ) {
-            if session.hasHeartRate {
-                statTile(label: "Avg HR", value: "\(session.avgHeartRate)", unit: "bpm")
+        let cells = statCells
+        let pairCount = cells.count / 2
+        let hasOddTrailing = cells.count % 2 == 1
+        Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+            ForEach(0..<pairCount, id: \.self) { row in
+                GridRow {
+                    cells[row * 2]
+                    cells[row * 2 + 1]
+                }
             }
-            if session.hasMaxHeartRate {
-                statTile(label: "Max HR", value: "\(session.maxHeartRate)", unit: "bpm")
-            }
-            if session.hasKcal {
-                statTile(label: "Energy", value: SafeFormat.int(session.kcalBurned), unit: "kcal")
-            }
-            if session.hasDistance {
-                statTile(label: "Distance", value: SafeFormat.decimal(session.distanceKm), unit: "km")
-            }
-            if session.type == .swimming, let avgSwolf = swimDetail?.avgSWOLF {
-                statTile(label: "Avg SWOLF", value: SafeFormat.int(avgSwolf), unit: nil, valueColor: Self.swolfTeal)
-            }
-            if session.type == .swimming, let pool = swimDetail?.poolLengthMeters {
-                // Neutral value color (default Color.primary) — teal stays
-                // exclusive to SWOLF as the swim-efficiency metric.
-                statTile(label: "Pool Length", value: "\(Int(pool.rounded()))", unit: "m")
+            if hasOddTrailing {
+                GridRow {
+                    cells[cells.count - 1]
+                        .gridCellColumns(2)
+                }
             }
         }
     }
 
+    /// Section 4 layout-hardening: same clip-proof pattern as
+    /// BodyView's `tile(label:value:unit:)`. The numeral scales
+    /// down via `minimumScaleFactor(0.6)`; the unit has
+    /// `layoutPriority(1)` so when space is tight the numeral
+    /// shrinks instead of the unit ("bpm" / "kcal" / "km")
+    /// clipping at the trailing edge.
     private func statTile(
         label: String,
         value: String,
@@ -162,14 +205,20 @@ struct WorkoutDetailView: View {
             Text(label)
                 .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(IndexFont.tileValue)
                     .foregroundStyle(valueColor ?? Color.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 if let unit {
                     Text(unit)
                         .font(IndexFont.tileUnit)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
                 }
             }
         }

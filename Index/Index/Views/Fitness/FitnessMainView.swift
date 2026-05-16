@@ -49,6 +49,10 @@ struct FitnessMainView: View {
         // system nav bar collapses to inline (toolbar buttons only)
         // so the colored "Fitness" hero leads the screen.
         .navigationBarTitleDisplayMode(.inline)
+        // Section 2 layout-hardening — see BodyView. Visible nav-bar
+        // background stops scrolling content at the safe-area edge
+        // instead of letting it slide under the status bar.
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 14) {
@@ -127,6 +131,8 @@ struct FitnessMainView: View {
             .font(.largeTitle.weight(.bold))
             .foregroundStyle(IndexPalette.Module.fitness)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Breathing room above the cap-height — see BodyView.
+            .padding(.top, 6)
     }
 
     // MARK: - Backfill banner

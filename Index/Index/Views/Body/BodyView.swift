@@ -47,6 +47,12 @@ struct BodyView: View {
         // keeps the system bar slim (just the toolbar items) so the
         // colored "Body" hero text is the first thing on screen.
         .navigationBarTitleDisplayMode(.inline)
+        // Section 2 layout-hardening: make the nav bar background
+        // visible so scrolling page content stops at the safe-area
+        // boundary instead of bleeding into the status-bar region
+        // through a transparent inline nav bar. Without this, the
+        // colored "Body" hero slid under the time/battery on scroll.
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 14) {
@@ -94,6 +100,10 @@ struct BodyView: View {
             .font(.largeTitle.weight(.bold))
             .foregroundStyle(IndexPalette.Module.body)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Breathing room above the cap-height — without it
+            // the glyph tops sit flush against the safe-area
+            // boundary and read as clipped at the top edge.
+            .padding(.top, 6)
     }
 
     // MARK: - Brain insight
@@ -171,6 +181,7 @@ struct BodyView: View {
     private var trendChart: some View {
         let series = weightsInLastDays(30).sorted { $0.date < $1.date }
         if series.count >= 2 {
+            let domain = weightDomain(series)
             Chart {
                 ForEach(series, id: \.persistentModelID) { entry in
                     AreaMark(
@@ -193,6 +204,7 @@ struct BodyView: View {
                     .interpolationMethod(.monotone)
                 }
             }
+            .chartYScale(domain: domain)
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day, count: chartStrideDays(series))) { _ in
                     AxisGridLine()
@@ -213,6 +225,29 @@ struct BodyView: View {
                 .background(IndexPalette.Surface.card)
                 .clipShape(.rect(cornerRadius: 12))
         }
+    }
+
+    /// Auto-range the weight chart's y-axis to the visible data
+    /// instead of letting Swift Charts default to 0…(max + pad).
+    /// Real-world weight series sit in a narrow band (87.3–87.5
+    /// kg) — a 0-based axis collapses them to a flat line pinned
+    /// to the top of the chart and the whole point of the trend
+    /// is invisible.
+    ///
+    /// Padding rule mirrors the swim-detail HR chart (audit
+    /// reference implementation): take the data's [min, max],
+    /// pad each side by max(15% of range, 0.5 kg). The fixed
+    /// floor handles ultra-tight data — two weigh-ins one decigram
+    /// apart still need a visible y-range. Single-point case is
+    /// guarded upstream by `series.count >= 2`.
+    private func weightDomain(_ series: [WeightEntry]) -> ClosedRange<Double> {
+        let values = series.map(\.weightKg)
+        guard let lo = values.min(), let hi = values.max() else {
+            return 0...100
+        }
+        let span = hi - lo
+        let pad = max(span * 0.15, 0.5)
+        return (lo - pad)...(hi + pad)
     }
 
     /// Day-stride between x-axis ticks, scaled to aim for ~4 ticks across
@@ -276,6 +311,15 @@ struct BodyView: View {
     /// Display-only tile. Metric explanation overlays were explicitly cut
     /// from v2 (see CLAUDE.md "Things explicitly NOT in v1"). The value
     /// speaks for itself; no tap target.
+    ///
+    /// Section 4 layout-hardening: the value+unit pair is one unit
+    /// that must fit on a single line. The numeral scales down via
+    /// `minimumScaleFactor(0.6)`; the unit gets `layoutPriority(1)`
+    /// so when space is tight, the numeral shrinks rather than the
+    /// "kg" / "kcal" / "%" clipping at the tile's trailing edge. A
+    /// long composite like "74–90" with a "kg" trailing unit now
+    /// fits in the half-width composition tiles at default text size
+    /// AND under Dynamic Type's larger steps.
     private func tile(
         label: String,
         value: String,
@@ -285,14 +329,20 @@ struct BodyView: View {
             Text(label)
                 .font(IndexFont.tileLabel)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(IndexFont.tileValue)
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 if let unit {
                     Text(unit)
                         .font(IndexFont.tileUnit)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
                 }
             }
         }
