@@ -25,6 +25,13 @@ struct LogMealManualSheet: View {
     var prefilledProtein: Double? = nil
     var prefilledCarbs:   Double? = nil
     var prefilledFat:     Double? = nil
+    /// Pre-selects the meal-type picker (Breakfast / Lunch /
+    /// Dinner / Snack). Used by the food-history re-log path so
+    /// a re-logged dinner stays a dinner. Ignored when `editing`
+    /// is non-nil (the entry's own type wins). Other prefill
+    /// paths (AI, barcode, frequent-foods chips) leave this nil
+    /// and the sheet defaults to `.snack`.
+    var prefilledMealType: MealType? = nil
     /// Optional hint when the pre-fill came from the AI estimator
     /// rather than a barcode lookup or frequent-foods chip. Drives
     /// a small "AI estimate — check the numbers" caption at the
@@ -225,6 +232,9 @@ struct LogMealManualSheet: View {
             }
             if let fat = prefilledFat, fatText.isEmpty, fat > 0 {
                 fatText = SafeFormat.int(fat)
+            }
+            if let prefilledMealType {
+                mealType = prefilledMealType
             }
         }
         Task { @MainActor in

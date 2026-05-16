@@ -91,6 +91,12 @@ struct NutritionMainView: View {
         var protein: Double? = nil
         var carbs: Double? = nil
         var fat: Double? = nil
+        /// Pre-selects the meal-type picker. Set by the
+        /// food-history re-log path so the new entry inherits
+        /// the original's meal type; the user can still edit
+        /// before saving. AI / barcode / frequent-foods paths
+        /// leave this nil and the sheet defaults to `.snack`.
+        var mealType: MealType? = nil
         /// Non-nil when the prefill originated from an AI photo
         /// estimate. Drives the "AI estimate — check the numbers"
         /// caption + warning tint inside LogMealManualSheet.
@@ -160,6 +166,7 @@ struct NutritionMainView: View {
                 prefilledProtein: prefill.protein,
                 prefilledCarbs: prefill.carbs,
                 prefilledFat: prefill.fat,
+                prefilledMealType: prefill.mealType,
                 aiPrefillHint: prefill.aiConfidence.map {
                     LogMealManualSheet.AIPrefillHint(confidence: $0)
                 }
@@ -662,10 +669,33 @@ struct NutritionMainView: View {
 
     private var todaysLogSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("TODAY'S LOG")
-                .font(IndexFont.sectionCap)
-                .kerning(0.8)
-                .foregroundStyle(IndexPalette.Text.tertiary)
+            HStack {
+                Text("TODAY'S LOG")
+                    .font(IndexFont.sectionCap)
+                    .kerning(0.8)
+                    .foregroundStyle(IndexPalette.Text.tertiary)
+                Spacer()
+                // Entry point for the food history screen. Same
+                // affordance pattern Body uses for "See all" next
+                // to RECENT ENTRIES. NavigationLink pushes onto
+                // the existing Nutrition NavigationStack —
+                // standard back button, not a sheet, not a tab.
+                NavigationLink {
+                    FoodHistoryView(onRequestRelog: { entry in
+                        manualEntryPrefill = ManualEntryPrefill(
+                            label: entry.label,
+                            kcal: entry.kcal,
+                            protein: entry.protein,
+                            carbs: entry.carbs,
+                            fat: entry.fat,
+                            mealType: entry.mealType
+                        )
+                    })
+                } label: {
+                    Text("See all")
+                        .font(IndexFont.rowSecondary)
+                }
+            }
             if todayEntries.isEmpty {
                 Text("No entries today.")
                     .font(IndexFont.rowSecondary)
