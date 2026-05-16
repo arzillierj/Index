@@ -24,10 +24,6 @@ Nothing in this file describes shipped behaviour. If an item ships, move it out 
 
 ## Doc debt
 
-- **`CLAUDE.md` still lists photo-to-macros under "things explicitly NOT in v1".** The AI macro estimator has shipped — this line is false and a future session could treat the feature as dead code.
-  - **Status:** Inaccurate in current `CLAUDE.md`.
-  - **Next step:** Remove the line.
-
 - **`README.md` refers to `IndexFont`; the file is `IndexTypography.swift`.**
   - **Status:** Reference mismatched in current `README.md`.
   - **Next step:** Correct the reference.
