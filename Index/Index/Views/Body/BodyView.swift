@@ -304,11 +304,19 @@ struct BodyView: View {
                 columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
                 spacing: 10
             ) {
+                // BMI / BMR / TDEE / Ideal range are descriptive
+                // metrics — coloring "up vs. down" would lie about
+                // good vs. bad (a higher TDEE isn't intrinsically
+                // good or bad; BMI can move either direction
+                // toward healthy depending on the user). No delta
+                // here. The two composition metrics with an honest
+                // direction-of-good (body fat down / lean mass up)
+                // get the indicator.
                 tile(label: "BMI", value: bmiText, unit: nil)
                 tile(label: "BMR", value: bmrText, unit: "kcal")
                 tile(label: "TDEE", value: tdeeText, unit: "kcal")
-                tile(label: "Body fat", value: bodyFat, unit: bodyFat == "—" ? nil : "%")
-                tile(label: "Lean mass", value: leanMass, unit: leanMass == "—" ? nil : "kg")
+                tile(label: "Body fat", value: bodyFat, unit: bodyFat == "—" ? nil : "%", delta: bodyFatDelta)
+                tile(label: "Lean mass", value: leanMass, unit: leanMass == "—" ? nil : "kg", delta: leanMassDelta)
                 tile(label: "Ideal range", value: idealRangeText, unit: "kg")
             }
         }
@@ -328,9 +336,9 @@ struct BodyView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
                 spacing: 10
             ) {
-                tile(label: "HRV", value: hrv, unit: hrv == "—" ? nil : "ms")
-                tile(label: "VO2 max", value: vo2Text, unit: nil)
-                tile(label: "Resting HR", value: rhr, unit: rhr == "—" ? nil : "bpm")
+                tile(label: "HRV", value: hrv, unit: hrv == "—" ? nil : "ms", delta: hrvDelta)
+                tile(label: "VO2 max", value: vo2Text, unit: nil, delta: vo2Delta)
+                tile(label: "Resting HR", value: rhr, unit: rhr == "—" ? nil : "bpm", delta: rhrDelta)
             }
         }
     }
@@ -350,7 +358,8 @@ struct BodyView: View {
     private func tile(
         label: String,
         value: String,
-        unit: String?
+        unit: String?,
+        delta: TileDelta? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
@@ -372,12 +381,38 @@ struct BodyView: View {
                         .layoutPriority(1)
                 }
             }
+            if let delta {
+                deltaIndicator(delta)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
         .background(IndexPalette.Surface.card)
         .clipShape(.rect(cornerRadius: 12))
+    }
+
+    /// Direction-of-good arrow + absolute change inside a tile.
+    /// The ARROW shows where the number moved (up arrow = value
+    /// increased). The COLOR shows whether that movement was good
+    /// for the user. Body fat dropping renders a green DOWN
+    /// arrow, lean mass rising renders a green UP arrow, resting
+    /// HR rising renders a red UP arrow, etc.
+    ///
+    /// Uses `IndexFont.tileUnit` so the indicator reads as a
+    /// quiet sibling of the unit label rather than competing
+    /// with the tile value. `monospacedDigit()` keeps numerics
+    /// column-aligned across a grid row.
+    private func deltaIndicator(_ delta: TileDelta) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: delta.arrowSystemName)
+                .font(IndexFont.tileUnit)
+            Text("\(delta.formattedAbs) \(delta.unit)")
+                .font(IndexFont.tileUnit)
+                .monospacedDigit()
+        }
+        .foregroundStyle(delta.isGood ? IndexPalette.Semantic.success : IndexPalette.Semantic.error)
+        .lineLimit(1)
     }
 
     // MARK: - Recent entries
@@ -529,6 +564,136 @@ struct BodyView: View {
         dailyMetrics.first
     }
 
+    // MARK: - Tile deltas
+    //
+    // Each delta walks the appropriate @Query result for the two
+    // most-recent rows that carry the metric (via the has-Foo
+    // flag), takes their difference, and packages it with the
+    // metric's direction-of-good. The view renders only when the
+    // change rounds to at least the display precision — no
+    // "↑ 0.0" or "↓ 0" pseudo-deltas on effectively no change.
+    //
+    // Direction-of-good (good for the user):
+    // - Body fat % → down is good (cut goal)
+    // - Lean mass  → up is good (preserve muscle)
+    // - HRV        → up is good (autonomic recovery)
+    // - VO2 max    → up is good (aerobic fitness)
+    // - Resting HR → down is good (fitness/recovery)
+    //
+    // Descriptive metrics (BMI, BMR, TDEE, ideal range) are
+    // intentionally omitted — coloring them green/red would lie
+    // about good vs. bad.
+
+    private var bodyFatDelta: TileDelta? {
+        guard let (curr, prev) = firstTwo(weights, where: { $0.hasBodyFat }) else { return nil }
+        return decimalDelta(
+            current: curr.bodyFatPercent,
+            previous: prev.bodyFatPercent,
+            unit: "%",
+            goodDirection: .down
+        )
+    }
+
+    private var leanMassDelta: TileDelta? {
+        // Only when both current AND previous are real
+        // measurements (hasLeanMass true). The MetricsEngine
+        // estimation fallback in `leanMassText` is a derived
+        // value with no history — comparing across estimation
+        // would be noise.
+        guard let (curr, prev) = firstTwo(weights, where: { $0.hasLeanMass }) else { return nil }
+        return decimalDelta(
+            current: curr.leanMassKg,
+            previous: prev.leanMassKg,
+            unit: "kg",
+            goodDirection: .up
+        )
+    }
+
+    private var hrvDelta: TileDelta? {
+        guard let (curr, prev) = firstTwo(dailyMetrics, where: { $0.hasHRV }) else { return nil }
+        return integerDelta(
+            current: curr.hrvMs,
+            previous: prev.hrvMs,
+            unit: "ms",
+            goodDirection: .up
+        )
+    }
+
+    private var vo2Delta: TileDelta? {
+        guard let (curr, prev) = firstTwo(dailyMetrics, where: { $0.hasVO2Max }) else { return nil }
+        return decimalDelta(
+            current: curr.vo2Max,
+            previous: prev.vo2Max,
+            unit: "",
+            goodDirection: .up
+        )
+    }
+
+    private var rhrDelta: TileDelta? {
+        guard let (curr, prev) = firstTwo(dailyMetrics, where: { $0.hasRestingHeartRate }) else { return nil }
+        return integerDelta(
+            current: Double(curr.restingHeartRate),
+            previous: Double(prev.restingHeartRate),
+            unit: "bpm",
+            goodDirection: .down
+        )
+    }
+
+    /// Walk an array sorted newest-first and return the first
+    /// two elements that satisfy `predicate`, or nil when fewer
+    /// than two qualify. Generic so the same helper covers both
+    /// `weights` and `dailyMetrics`.
+    private func firstTwo<T>(_ array: [T], where predicate: (T) -> Bool) -> (current: T, previous: T)? {
+        var hits: [T] = []
+        for item in array {
+            if predicate(item) {
+                hits.append(item)
+                if hits.count == 2 { return (hits[0], hits[1]) }
+            }
+        }
+        return nil
+    }
+
+    /// One-decimal delta. Returns nil when the rounded magnitude
+    /// is below 0.1 so a barely-perceptible change doesn't show
+    /// a colored arrow on what's effectively no change.
+    private func decimalDelta(
+        current: Double,
+        previous: Double,
+        unit: String,
+        goodDirection: GoodDirection
+    ) -> TileDelta? {
+        let signed = current - previous
+        let rounded = (signed * 10).rounded() / 10
+        let mag = abs(rounded)
+        guard mag >= 0.1 else { return nil }
+        return TileDelta(
+            signedAmount: signed,
+            formattedAbs: String(format: "%.1f", mag),
+            unit: unit,
+            goodDirection: goodDirection
+        )
+    }
+
+    /// Integer-precision delta. Returns nil on rounded-zero.
+    private func integerDelta(
+        current: Double,
+        previous: Double,
+        unit: String,
+        goodDirection: GoodDirection
+    ) -> TileDelta? {
+        let signed = current - previous
+        let rounded = signed.rounded()
+        let mag = abs(rounded)
+        guard mag >= 1 else { return nil }
+        return TileDelta(
+            signedAmount: signed,
+            formattedAbs: "\(Int(mag))",
+            unit: unit,
+            goodDirection: goodDirection
+        )
+    }
+
     private var hrvText: String {
         if let m = latestDailyMetric, m.hasHRV {
             return SafeFormat.int(m.hrvMs)
@@ -583,4 +748,46 @@ struct BodyView: View {
         return f.string(from: d)
     }
 
+}
+
+// MARK: - Tile delta types
+
+/// Which direction is "good" for a given metric. Used by
+/// `TileDelta.isGood` to decide whether the change should
+/// render green (good) or red (bad). Body fat / resting HR
+/// are `.down`; lean mass / HRV / VO2 are `.up`. Descriptive
+/// metrics (BMI, BMR, TDEE, ideal range) don't use this — they
+/// don't render a delta at all.
+enum GoodDirection {
+    case up, down
+}
+
+/// Packaged delta payload for a Body tile. `signedAmount`
+/// carries the actual change (current - previous) so the arrow
+/// direction is honest about where the number moved;
+/// `formattedAbs` is the pre-rounded, pre-formatted magnitude
+/// string so the rendering layer doesn't redo display math.
+struct TileDelta {
+    let signedAmount: Double
+    let formattedAbs: String
+    let unit: String
+    let goodDirection: GoodDirection
+
+    /// SF Symbol picked by sign of the change. Spec: the arrow
+    /// follows the NUMBER's direction, not the user-good
+    /// direction — so body fat dropping shows a down arrow
+    /// (which `isGood` then paints green).
+    var arrowSystemName: String {
+        signedAmount < 0 ? "arrow.down" : "arrow.up"
+    }
+
+    /// True when the change is good for the user given the
+    /// metric's `goodDirection`. The caller maps this to
+    /// semantic green / red.
+    var isGood: Bool {
+        switch goodDirection {
+        case .up:   return signedAmount > 0
+        case .down: return signedAmount < 0
+        }
+    }
 }
