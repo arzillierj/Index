@@ -224,17 +224,17 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             if profile.enabledModules.contains(.body) {
                 Tab("Body", systemImage: "scalemass", value: TabSlot.body) {
-                    NavigationStack { BodyView() }
+                    IndexTabScaffold { BodyView() }
                 }
             }
             if profile.enabledModules.contains(.fitness) {
                 Tab("Fitness", systemImage: "figure.run", value: TabSlot.fitness) {
-                    NavigationStack { FitnessMainView() }
+                    IndexTabScaffold { FitnessMainView() }
                 }
             }
             if profile.enabledModules.contains(.nutrition) {
                 Tab("Nutrition", systemImage: "fork.knife", value: TabSlot.nutrition) {
-                    NavigationStack { NutritionMainView() }
+                    IndexTabScaffold { NutritionMainView() }
                 }
             }
         }
@@ -287,5 +287,39 @@ struct ContentView: View {
         }
 
         profileService.refresh(in: modelContext)
+    }
+}
+
+// MARK: - Shared tab scaffold
+
+/// Wraps each tab's root view in a `NavigationStack` plus the shared
+/// warm-alabaster screen background.
+///
+/// Why a single wrapper: the status-bar region color used to read as
+/// a "warmer strip" against the screen below because the navigation
+/// bar's `toolbarBackground` was the alabaster surface (#FAF8F5) but
+/// the ScrollView body fell through to the iOS system default
+/// background (a slightly cooler shade in iOS 26). Painting the
+/// scaffold the SAME alabaster as the toolbar removes the seam — the
+/// background is continuous from the top edge through the status-bar
+/// region into the page content. `.ignoresSafeArea()` extends the
+/// fill behind the toolbar so the seam can't reappear if a child's
+/// toolbarBackground modifier ever gets dropped.
+///
+/// Tab-specific tinting (Body blue / Fitness coral / Nutrition teal)
+/// lives on the TabView via `.tint(currentTabAccent)` and on the
+/// per-module hero text — the scaffold background is intentionally
+/// neutral so the accent isn't fighting the surface.
+private struct IndexTabScaffold<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        NavigationStack {
+            content()
+                .background(
+                    IndexPalette.Surface.background
+                        .ignoresSafeArea()
+                )
+        }
     }
 }
