@@ -321,7 +321,8 @@ Static formatters that return `"—"` for non-finite or out-of-threshold values:
 ### `Views/Settings/`
 
 - `SettingsView.swift` — sections: Profile, Goal (with eat-back toggle), Modules, Manual logging, Strength exercises (link to `StrengthLibraryView`), Apple Health (link to `HealthStatusSheet`), Notifications, AI estimation, Data (export stub + reset), Demo (toggle + reset demo data; calls `exit(0)` on confirm), Account (sign out + delete), About.
-- Per-field edit sheets: `NameEditSheet`, `AgeEditSheet`, `HeightEditSheet`, `SexEditSheet`, `DirectionEditSheet`, `CalorieAdjustmentEditSheet` (slider bounded `[-1000, +1000]` in 50-kcal steps), `ProteinTargetEditSheet`, `TargetWeightEditSheet`, `AIAPIKeyEditSheet` (`SecureField`; never reads the stored key back), `AIBudgetEditSheet` (slider $0–$50 in $0.50 steps), `HealthStatusSheet`.
+- Per-field edit sheets (10): `NameEditSheet`, `AgeEditSheet`, `HeightEditSheet`, `SexEditSheet`, `DirectionEditSheet`, `CalorieAdjustmentEditSheet` (slider bounded `[-1000, +1000]` in 50-kcal steps), `ProteinTargetEditSheet`, `TargetWeightEditSheet`, `AIAPIKeyEditSheet` (`SecureField`; never reads the stored key back), `AIBudgetEditSheet` (slider $0–$50 in $0.50 steps).
+- `HealthStatusSheet` — Apple Health status + re-grant affordance. Not an edit sheet; lives in the same folder.
 
 ### `Views/Onboarding/`
 

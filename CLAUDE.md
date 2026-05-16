@@ -24,7 +24,7 @@ To actually launch the app on a simulator, boot one and use a `-destination 'id=
 
 ```
 Index/
-├── CLAUDE.md, CONTEXT.md, PROGRESS.md, README.md   — root docs (this directory)
+├── CLAUDE.md, CONTEXT.md, PROGRESS.md, README.md, BACKLOG.md   — root docs (this directory)
 ├── Index/                                          — Xcode project + sources
 │   ├── Index.xcodeproj/
 │   └── Index/
@@ -39,7 +39,7 @@ Index/
 │           ├── Fitness/                            — FitnessMainView + per-activity log sheets + WorkoutDetailView + SwimAutoSets
 │           ├── Strength/                           — Active session, library, picker, detail, RestTimer
 │           ├── Nutrition/                          — NutritionMainView + camera (barcode + AI) + result sheet + manual + detail + FoodHistoryView
-│           ├── Settings/                           — SettingsView + 11 edit sheets + HealthStatusSheet
+│           ├── Settings/                           — SettingsView + 10 edit sheets + HealthStatusSheet
 │           ├── Onboarding/                         — 8-step OnboardingView
 │           └── Theme/                              — IndexPalette (colors) + IndexTypography (SF Pro tokens) + DemoBadge
 └── .git/
@@ -194,21 +194,6 @@ Direct outcomes of the audit findings — adopt these for new work:
 - **AI features go through `ClaudeService`.** The Anthropic API key lives in iOS Keychain only (`index.ai.anthropicAPIKey`, `kSecAttrAccessibleAfterFirstUnlock` + iCloud sync) — NEVER compiled into the binary, NEVER committed to git, NEVER written into source files or docs. Every network call to Anthropic MUST be cost-gated through `claudeService.isWithinBudget(in:)` before the request, and MUST record the result via `claudeService.recordUsage(inputTokens:outputTokens:in:)` after the response so the monthly cap stays honest. Cost constants are Haiku 4.5 (claude-haiku-4-5-20251001) per-million-token rates; re-verify against anthropic.com/pricing if month-to-date totals look wrong. The meal-photo vision call lives in `ClaudeService.estimateMacros(from:in:)` — images are downscaled to 1024px longest edge + JPEG q=0.7 before send so input-token cost stays low; usage is recorded BEFORE the JSON-parse step so a parse failure still bills correctly.
 
 ---
-
-## Audit Phase 5 milestone — 2026-05-15
-
-Foundation hardening shipped. 24 H-tier fixes + 1 DQ-derived schema bump landed across 5 rounds, all on `origin/main` between commits `daca14c` and `cbff27c`. Headline outcomes:
-
-- **Dead code gone:** `Services/ClaudeService.swift` + `Models/PhotoEstimateLog.swift` deleted; four dead fields marked `// DEPRECATED:` (`NutritionEntry.photoEstimated`, `NutritionSource.photo`, `NutritionEntry.deletedFromIndex`, `UserExercise.notes`).
-- **Three additive schema bumps shipped (// SCHEMA:):** `WeightEntry.hkSampleUUID` (H5), `StrengthSession.inProgress` (H16), `UserExercise.hiddenFromLibrary` (DQ4). Plus `DailyHealthMetrics.date` default → `Date.distantPast` sentinel (H20).
-- **Identity moved to Keychain** (H21) with iCloud Keychain sync for reinstall survival; `AppleSignIn` stubs no longer trap (H7).
-- **`IndexApp` recovery rebuilt** with discriminated catch + non-trapping fallback + ContentView hard-error screen (H8 + H9 + H11 + H12).
-- **HK boundary tightened**: constructor injection of `ModelContainer` (H10), UUID-first dedup on weight imports (H5), `saveWeight → async throws` with non-blocking failure banner (H4).
-- **UX guards added** in onboarding (H13 — DQ6 min-1 exercise) and manual workout sheets (H14).
-- **Performance**: bounded Strength `@Query` (H17), hoisted derived-metrics in main views (H18).
-- **Project config**: `LSApplicationCategoryType` set (H23); `SWIFT_TREAT_WARNINGS_AS_ERRORS = YES` for Release (H24).
-
-Build clean (Debug + Release, zero warnings) at the close of every round. Two device-test gates honored (Round 3 H5 + H21; Round 4 H16 + DQ4). See `PROGRESS.md` for the per-round commit table + the carry-forward list of Medium / Low items deferred to Phase 8 polish.
 
 ## When to ask Yannis vs. decide
 

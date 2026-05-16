@@ -28,14 +28,14 @@ Phases 1–7 complete + post-Phase-7 features:
 - **Heart-rate chart on every workout type** — Squash, Cycling, Running, Swimming, Other all render the same chart via a generic live HealthKit fetch (`HealthKitService.fetchHRSeries`).
 - **Body composition + delta indicators** — every Body tile with a clear direction-of-good (body fat, lean mass, HRV, VO2, resting HR) shows a green/red arrow + change vs. the previous measurement. "Time asleep" tile reads last night's sleep duration from HealthKit `sleepAnalysis`.
 - **Food history screen** — push-from-Nutrition view of every meal ever logged, grouped by meal type, tap-to-re-log via the existing editable sheet.
-- **Audit Phase 5** complete — 24 H-tier fixes + DQ-derived schema bumps across 5 rounds; build clean at every round close.
+- **Audit Phase 5** complete — 24 H-tier fixes + 1 DQ-derived schema bump across 5 rounds; build clean at every round close.
 - **Centralized theme** — `IndexPalette` for colors, `IndexFont` for SF Pro typography with `.monospacedDigit()` for tabular alignment. `IndexTabScaffold` paints the alabaster surface across all three tabs.
 - **Per-module accent tinting** — Body blue, Fitness coral, Nutrition teal; tab tint switches with the active tab.
 - **Layout hardening** — auto-ranged weight chart, safe-area-respecting nav bars (explicit opaque toolbar background under iOS 26 Liquid Glass), clip-proof tiles (numeral scales, unit pinned), workout-detail card grid uniform across types, partial Dynamic Type via semantic font tokens.
 - **Calorie target is linear** — `caloriesBase = TDEE + adjustment`. A prior `max(1200, BMR * 1.1)` soft-clamp that silently overrode user deficits was removed; safety lives at the slider boundary (±1000 kcal in 50-kcal steps).
 - **Demo data mode** — Settings toggle that switches Index to a physically separate SwiftData store (`Index-demo.store`) pre-populated with a believable rolling year of data. Real and demo stores can never mix — only one is opened per launch. AI estimates are off and `AIUsageRecord` is untouched in demo, so the cost ledger stays honest.
 
-Not yet shipped: CloudKit private database sync (model shape is ready; flipping `cloudKitDatabase:` is a one-line edit when Developer Program enrollment lands), real Sign in with Apple (`AppleSignInIdentityService` exists as non-trapping stubs), imperial display units (helpers exist; no view branches on `Profile.units`), HR-series persistence on import (the series is fetched **live** from HealthKit when a workout-detail screen opens — see `HealthKitService.fetchHRSeries(forWorkoutUUID:)` — so the chart renders for every workout type with HR data; persistence would only be needed if we wanted the chart available offline or without HK), custom launch screen + icon.
+Not yet shipped: CloudKit private database sync (model shape is ready; flipping `cloudKitDatabase:` is a one-line edit when Developer Program enrollment lands), real Sign in with Apple (`AppleSignInIdentityService` exists as non-trapping stubs), imperial display units (helpers exist; no view branches on `Profile.units`), HR-series persistence on import (the series is fetched **live** from HealthKit when a workout-detail screen opens — see `HealthKitService.fetchHRSeries(forWorkoutUUID:)` — so the chart renders for every workout type with HR data; persistence would only be needed if we wanted the chart available offline or without HK), custom launch screen.
 
 ## Build
 
@@ -53,7 +53,7 @@ The Xcode-26.4.1 SDK is `iphonesimulator26.5` even though the runtime installed 
 
 ```
 Index/
-├── README.md, CONTEXT.md, CLAUDE.md, PROGRESS.md   — root docs
+├── README.md, CONTEXT.md, CLAUDE.md, PROGRESS.md, BACKLOG.md   — root docs
 └── Index/                                          — Xcode project + sources
     ├── Index.xcodeproj/
     └── Index/
@@ -84,4 +84,5 @@ Xcode 16+ `PBXFileSystemSynchronizedRootGroup` is on — new `.swift` files in `
 | `README.md` | This file — what the app is, how to build, where to look. |
 | `CONTEXT.md` | Comprehensive architecture map — every module, every service, every model, every view, plus the patterns binding them together. Start here for a deep read. |
 | `CLAUDE.md` | Working agreement — build commands, schema evolution rules, non-negotiable patterns, audit-derived defensive coding rules, code style, what's explicitly NOT in v1. |
-| `PROGRESS.md` | Phase-by-phase log of what shipped, audit punch list, deferred-question answers, post-v1 backlog. |
+| `PROGRESS.md` | Phase-by-phase log of what shipped, audit punch list, deferred-question answers. |
+| `BACKLOG.md` | The single source for open bugs, pre-release requirements, and deferred work. |
