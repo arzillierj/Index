@@ -336,9 +336,9 @@ struct BodyView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
                 spacing: 10
             ) {
-                tile(label: "HRV", value: hrv, unit: hrv == "—" ? nil : "ms", delta: hrvDelta)
-                tile(label: "VO2 max", value: vo2Text, unit: nil, delta: vo2Delta)
-                tile(label: "Resting HR", value: rhr, unit: rhr == "—" ? nil : "bpm", delta: rhrDelta)
+                tile(label: "HRV", value: hrv, unit: hrv == "—" ? nil : "ms", delta: hrvDelta, deltaPlacement: .belowValue)
+                tile(label: "VO2 max", value: vo2Text, unit: nil, delta: vo2Delta, deltaPlacement: .belowValue)
+                tile(label: "Resting HR", value: rhr, unit: rhr == "—" ? nil : "bpm", delta: rhrDelta, deltaPlacement: .belowValue)
             }
         }
     }
@@ -355,11 +355,32 @@ struct BodyView: View {
     /// long composite like "74–90" with a "kg" trailing unit now
     /// fits in the half-width composition tiles at default text size
     /// AND under Dynamic Type's larger steps.
+    /// Where the delta indicator sits inside a tile.
+    ///
+    /// - `.inline`: on the same line as value+unit. Used by the
+    ///   COMPOSITION grid (two-across, plenty of width). Tile
+    ///   stays two lines tall regardless of whether a delta
+    ///   exists, so the COMPOSITION grid's mix of delta and
+    ///   no-delta tiles keeps uniform height.
+    /// - `.belowValue`: on its own line below value+unit. Used
+    ///   by the VITALS grid (three-across, much narrower — the
+    ///   inline form was clipping "↑ 12 bpm" to "↑ 1..."). All
+    ///   three VITALS tiles render the third-line slot
+    ///   whether or not a delta is present (an invisible
+    ///   placeholder reserves the height) so a real-mode tile
+    ///   with only one measurement still aligns with its
+    ///   siblings.
+    enum DeltaPlacement {
+        case inline
+        case belowValue
+    }
+
     private func tile(
         label: String,
         value: String,
         unit: String?,
-        delta: TileDelta? = nil
+        delta: TileDelta? = nil,
+        deltaPlacement: DeltaPlacement = .inline
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
@@ -367,19 +388,19 @@ struct BodyView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-            // Two-line tile: label + value/unit/delta. Delta
-            // lives on the same line as the value+unit so a tile
-            // with a delta has the SAME height as one without —
-            // the COMPOSITION + VITALS grids stay uniform.
-            // layoutPriority:
+            // value/unit row. When `deltaPlacement == .inline`,
+            // the delta hangs at the right of the same HStack
+            // — see layoutPriority comments below. When
+            // `.belowValue`, the delta is rendered as a third
+            // VStack child further down.
+            //
+            // Inline layoutPriority:
             //   - unit = 1  (must never clip; pattern from the
             //     tile-fitting layout-hardening commit)
             //   - delta = -1 (compresses BEFORE the value when
-            //     space is tight — the value owns the line; the
-            //     delta is a quiet sibling)
+            //     space is tight — the value owns the line)
             //   - value = 0 (default; shrinks via
-            //     minimumScaleFactor if both unit + delta won't
-            //     yield enough room)
+            //     minimumScaleFactor as last-resort)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(IndexFont.tileValue)
@@ -393,10 +414,26 @@ struct BodyView: View {
                         .lineLimit(1)
                         .layoutPriority(1)
                 }
-                if let delta {
+                if deltaPlacement == .inline, let delta {
                     deltaIndicator(delta)
                         .padding(.leading, 4)
                         .layoutPriority(-1)
+                }
+            }
+            if deltaPlacement == .belowValue {
+                // Third row is rendered unconditionally so all
+                // tiles in the same section align vertically
+                // even when one has no delta (only one HK
+                // measurement on file). The placeholder is a
+                // hidden Text with the same font so it reserves
+                // exactly the line height the real indicator
+                // would occupy.
+                if let delta {
+                    deltaIndicator(delta)
+                } else {
+                    Text(" ")
+                        .font(IndexFont.tileUnit)
+                        .opacity(0)
                 }
             }
         }
