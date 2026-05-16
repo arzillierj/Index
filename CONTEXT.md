@@ -1,735 +1,353 @@
-# Index v2 — Architecture
+# Index — code-derived architecture map
 
-Comprehensive map of the codebase. Every module, every service, every model, every view, the patterns binding them together, and the non-obvious decisions that won't survive a `git blame` skim. New contributor reference; current-state truth.
+Objective reference for the current source. Plain prose, no history.
 
-For build commands and the working agreement, see `CLAUDE.md`. For the phase log + deferred-question answers + post-v1 backlog, see `PROGRESS.md`.
-
----
-
-## What Index is
-
-An iOS app for someone with serious gear — Apple Watch, smart scale (RENPHO), Apple Health — who wants their data **interpreted**, not just displayed. Three modules — **Body**, **Fitness**, **Nutrition** — sit on top of Apple's stack:
-
-- **HealthKit** is the data source (read 15 types — 14 quantity + `sleepAnalysis` category, write `bodyMass` only).
-- **CloudKit private database** is the eventual sync layer, pending paid Developer Program enrollment. Models are CloudKit-shaped today; flipping the capability is a one-line `ModelConfiguration` change.
-- **Sign in with Apple** is the eventual identity provider, also pending enrollment. Identity sits behind a protocol so the swap is one line.
-
-Each module shows raw data plus templated insight sentences from a pure-function **Brain** that reads cross-module signals.
-
-This is the v2 rebuild. The v0 app lives at `/Users/yannis/Dashboard` and is reference-only — patterns and formulas carry over, code does not.
+For known gaps and deferred work see `BACKLOG.md`. For the working agreement (build conventions, schema rules) see `CLAUDE.md`.
 
 ---
 
-## Current state (post-Phase-7)
+## 1. Overview
 
-The app has shipped:
-
-- All three module main screens (Body / Fitness / Nutrition), each with a colored page-level hero title, per-module accent tinting, brain insights (kept in the engine but the visible Fitness + Nutrition pills were removed in a later refactor), and a single consolidated `Settings` panel reachable from each tab.
-- Onboarding (8 steps), sign-in stub, profile creation, optional exercise picker (≥1 required when Fitness enabled), Apple Health auth request.
-- HealthKit auto-import: workouts via anchored observer (gated on import toggle), body mass via observer query, RENPHO body-composition grouping (same-source-bundle-id matching), one-time historical workout backfill from Jan 1 of the current year, daily-health vitals (HRV / VO2 / RHR) upserted on launch.
-- Strength training: freestyle (no templates), 10-item starter catalog, soft-hide library entry, active session with rest timer + quick-adjust chips, per-set timestamp, post-session WorkoutSession mirror so the feed picks it up.
-- Nutrition: live camera screen that does both barcode scanning (EAN-8 / EAN-13 / UPC-A / UPC-E / ITF-14 / Code 128, Open Food Facts lookup with 90-day local cache) and AI meal-photo macro estimates via Claude Haiku 4.5; manual entry sheet with macro validation; frequent-foods chip row (behavior-based, last 30 days, top 5).
-- Phase 7 Settings: profile editing, goal direction, calorie adjustment (signed, deficit/surplus slider), protein target, target weight, module toggles, manual-logging toggles (hide Log button when off), eat-back-workout-calories toggle, Apple Health connection panel, notifications (workout + weight, async permission gating), data export stub, reset all data, sign out, delete account.
-- Local notifications when HK observer inserts a genuinely-new workout or weigh-in (gated on profile flag + iOS permission). Tap routes to the matching tab unless the app was already active.
-- Centralized color system (`IndexPalette`) and type system (`IndexFont`). SF Pro with `.monospacedDigit()` for tabular alignment (Geist Mono was tried then reverted — full-width `.` rendered "87 . 3").
-- Optional AI macro estimator. `ClaudeService` exposes a Keychain-stored Anthropic API key + a hard monthly USD budget cap (UserDefaults default $2.00) + `AIUsageRecord` rows tracking spend. The Nutrition "Camera" button opens a live camera screen that does both barcode auto-detect (free, OpenFoodFacts) and AI meal-photo macro estimates via `ClaudeService.estimateMacros` (Haiku 4.5, image downscaled to 1024px JPEG before send, budget-gated). Successful estimates open the editable manual-entry sheet pre-filled; non-food / over-budget / no-key / network errors stay on the camera with a clear next step.
-- Audit Phase 5 hardening: 24 H-tier fixes + DQ-derived schema bumps across 5 rounds. See `PROGRESS.md` for the per-fix commit table.
-- **Demo data mode.** A UserDefaults flag (`demoModeEnabled`) selects between two physically separate SwiftData stores at launch: real (`default.store`) or demo (`Index-demo.store`), both in Application Support. The two stores are never both open in the same process — `IndexApp.sharedContainer` reads the flag once and builds a single `ModelConfiguration` against the chosen URL. Toggling in Settings calls `exit(0)`; the user reopens the app and the new flag drives the container choice. On first launch into demo mode the demo store is empty, so `DemoDataService.seedFreshDataset` generates a believable rolling-year dataset (profile, weights, workouts with HR metadata, strength sessions with sets/reps, ~1200 nutrition entries, daily HRV/VO2/RHR). The HR chart in `WorkoutDetailView` renders for demo workouts via `DemoHRSeriesGenerator.series(for:)` — a procedural, deterministic-per-UUID generator that stands in for the HK live fetch. `AIUsageRecord` is **never** seeded; `ClaudeService.estimateMacros` short-circuits with `.demoModeActive` so the AI cost ledger stays at $0.00.
-
-What's **not** shipped yet:
-
-- CloudKit sync (model shape is ready; flipping `cloudKitDatabase:` is the single edit when enrollment lands).
-- Real Sign in with Apple (`AppleSignInIdentityService` exists as non-trapping stubs).
-- Imperial units (`MetricsEngine.kgToLbs/lbsToKg/cmToFtIn` exist but no view branches on `Profile.units`).
-- HR-series persistence on import. Series is fetched live from HealthKit per workout-detail view via `HealthKitService.fetchHRSeries(forWorkoutUUID:)` — works for every workout type with HR data. Persistence would only matter for offline / HK-detached use.
-- Custom launch screen + icon.
+Index is a private iOS app that interprets body, fitness, and nutrition data on top of Apple's stack. iOS 26.4+ deployment target, SwiftUI + SwiftData + HealthKit, iPhone only (`TARGETED_DEVICE_FAMILY = 1`). Three modules sit under one `TabView`: **Body**, **Fitness**, **Nutrition**. The app reads HealthKit broadly and writes back only manual weight entries.
 
 ---
 
-## Top-level architecture
+## 2. Build & project
+
+- Bundle id: `com.yanni.Index`
+- Marketing version: 1.0
+- Xcode target name: `Index`
+- Deployment target: iOS 26.4 (`IPHONEOS_DEPLOYMENT_TARGET = 26.4`)
+- Application category: `public.app-category.healthcare-fitness`
+- Info.plist privacy strings: `NSCameraUsageDescription`, `NSHealthShareUsageDescription`, `NSHealthUpdateUsageDescription`, `NSPhotoLibraryUsageDescription`
+- File auto-discovery: `PBXFileSystemSynchronizedRootGroup` — new `.swift` files under `Index/Index/**/` are picked up without editing `project.pbxproj`.
+
+Debug build command (matches `CLAUDE.md`):
 
 ```
-┌─────────────────────────────────────────────┐
-│                   BRAIN                     │
-│   (MetricsEngine, BrainService — pure)      │
-│   Reads all modules. Computes targets.      │
-│   Returns insight sentences per module.     │
-└─────┬─────────────┬─────────────┬───────────┘
-      │             │             │
-      ▼             ▼             ▼
-┌──────────┐  ┌──────────┐  ┌──────────┐
-│   BODY   │  │ FITNESS  │  │NUTRITION │
-└──────────┘  └──────────┘  └──────────┘
-      │             │             │
-      └─────────────┴─────────────┘
-                    │
-                    ▼
-            ┌──────────────┐
-            │  HEALTHKIT   │
-            │   BRIDGE     │
-            └──────────────┘
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild -project /Users/yannis/Index/Index/Index.xcodeproj \
+  -target Index \
+  -sdk iphonesimulator26.5 \
+  -configuration Debug build
 ```
 
-**Direction of dependency:** Views → Models, Views → Services, Services → Models. Models never import Views or Services. The HealthKit bridge is the only boundary that touches Apple's HK types — those types do not leak past `HealthKitService.swift`.
+Top-level repo layout:
 
----
-
-## App lifecycle
-
-### `IndexApp.swift` — entry point
-
-`@main` struct that owns the `ModelContainer` lifecycle, constructs the long-lived services, and injects them into the view tree via `.environment`.
-
-- `sharedContainer` — `static let` lazy `ModelContainer`. Initialized once on first access. Two-tier recovery:
-  - Discriminated `do/catch` on `SwiftDataError.loadIssueModelContainer` (schema mismatch / store corruption) triggers a single-shot wipe + retry. Audit H9.
-  - Any other error (disk full, file-permission, unknown future type) routes to an in-memory fallback. The `hardErrorFlagKey` UD flag tells `ContentView` to render the hard-error screen instead of letting writes silently disappear. Audit H8.
-  - Single-shot wipe — no three-strikes loop. Audit DQ5.
-- `@State profileService = ProfileService(identity: AppDependencies.identity)` — the identity protocol is the swap seam for Sign in with Apple.
-- `@State notificationService = NotificationService.shared` — singleton because HealthKitService also needs the same instance (registered as `UNUserNotificationCenterDelegate`).
-- `@State hkService = HealthKitService(modelContainer: sharedContainer, notificationService: .shared)` — constructor injection. No more side-channel mutation from a view's `.task` (audit H10).
-- All three services injected as `.environment(...)` so `@Environment(ProfileService.self)` works in any view.
-
-### `ContentView.swift` — root router
-
-Decides which screen to show based on identity + profile state:
-
-1. **Hard-error screen** if `hardErrorFlagKey` is set — rendered with a "Reset all data and restart" button that wipes ApplicationSupport store files and exits, forcing a clean ModelContainer init on next launch.
-2. **Migration prompt** if `ProfileService.orphanProfileForMigration` is non-nil — when exactly one Profile exists on device but its `userId` doesn't match the current `IdentityService.currentUserId`. Most likely cause: Personal Team SIWA `userIdentifier` changed to the paid-team one. User picks "Import previous data" (re-key the orphan via `acceptMigration`) or "Start fresh" (delete + create new via `declineMigration`).
-3. **Tab view** if a profile exists and `onboardingCompleted == true`. Three tabs, each gated on `Profile.enabledModules`. The active tab's accent color drives the `.tint(...)` on `TabView`.
-4. **OnboardingView** otherwise.
-
-Four other responsibilities live here:
-
-- **HK bootstrap gate** — `hkService.bootstrapIfAuthorized()` only fires when `profileService.activeProfile != nil` AND `!DemoMode.isEnabled`. Audit H11 prevents HK observers from mirroring into a profile-less store; the demo gate prevents real HK data from leaking into the synthetic year.
-- **Demo-mode seeding** — when `DemoMode.isEnabled` and the demo store has no Profile (`!DemoDataService.isSeeded`), call `seedFreshDataset(in:)` and then refresh `ProfileService` so the user routes directly into the tabs instead of `OnboardingView`. The demo store persists between sessions; seeding only runs on first launch into demo mode.
-- **One-time `calorieAdjustmentKcal` sign migration** — for installs from before the sign-fix commit. If the UD flag is unset AND the value is positive, negate it (legacy `+500` deficit becomes `-500` under the new convention). Flag is set unconditionally afterwards so fresh installs (no profile yet) also mark migration done.
-- **Notification-tap routing** — listens to `NotificationService.tabRouteNotificationName` via `.onReceive(NotificationCenter.default.publisher(...))` and swaps `selectedTab` to `body` / `fitness` / `nutrition`.
-
-Each Tab's content is wrapped in **`IndexTabScaffold`** — a tiny `NavigationStack` wrapper that paints `IndexPalette.Surface.background` with `.ignoresSafeArea()` so the warm-alabaster surface is continuous from the top edge down. Without it the status-bar region (filled by the navigation bar's `toolbarBackground`) read as a slightly warmer seam against the system-default body background.
-
-`completeOnboarding(draft:)` is the only place new `Profile` rows are written. Pulls every field off `OnboardingDraft`, inserts the Profile + the picked `UserExercise` rows, then explicit `try modelContext.save()` (audit H12 — SwiftData autosave is "next runloop tick when dirty"; an app kill in that window would lose the entire onboarding result).
-
----
-
-## Models — 11 SwiftData classes (`Models/`)
-
-All `@Model` classes follow the CloudKit-shape rules: every property has a default, every to-one relationship is optional, no `@Attribute(.unique)`. Lightweight migration only — additive changes (new fields / new types) backfill defaults automatically; renames / deletes / type changes require a redesign rather than a migration.
-
-### `IndexSchema.swift`
-Single source of truth for the model list. `IndexSchema.models` is a static `[any PersistentModel.Type]` passed to `Schema(models)` in `IndexApp`. The original V1/V2/V3 + `IndexMigrationPlan` design generated "Duplicate version checksums detected" because each `VersionedSchema` snapshot returned the same compile-time Swift class types; replaced with a single flat list relying on SwiftData lightweight migration.
-
-### `Profile.swift`
-One per active `userId`. Holds all personalization + every toggle the user controls. Properties are mostly plain — `enabledModules` is the interesting one: stored as a JSON-encoded `[String]` blob in `enabledModulesJSON` and exposed as a computed `Set<Module>` via get/set. Decode failures fall back to the full default set (`["body","fitness","nutrition"]`) so a malformed blob doesn't strand the user with zero tabs; encode failures fall back to the same literal so the round-trip stays byte-stable (audit H19).
-
-Enums declared in this file: `Sex`, `ActivityLevel` (with Harris-Benedict multiplier table), `Goal` (lose/maintain/gain), `Units` (metric/imperial), `Module` (body/fitness/nutrition).
-
-Additive schema bumps shipped through Phase 7:
-
-- `hasTargetWeight: Bool = false` + `targetWeightKg: Double = 0` — gating pattern so an unset target doesn't pollute MetricsEngine math.
-- `calorieAdjustmentKcal: Double = 0` — **signed** post-fix. Negative = deficit (cutting), positive = surplus (bulking), 0 = maintenance. Always added to TDEE: `target = TDEE + workouts + adjustment`. The one-time `ContentView.task` migration negates legacy positive values.
-- `eatBackWorkoutCalories: Bool = false` — when off, `MetricsEngine.dailyTargets` zeros the workout-kcal contribution. Default false because cutters (the most common careful tracker) should NOT eat back. SCHEMA: additive.
-- `manualWeightLoggingEnabled: Bool = false` + `manualFitnessLoggingEnabled: Bool = false` — gate the "Log" toolbar button in BodyView / FitnessMainView. Default off (automated sources are the primary write path). SCHEMA: additive.
-- `notifyOnNewWorkout: Bool = false` + `notifyOnNewWeight: Bool = false` — local notifications fire when HK observer inserts a genuinely-new row. iOS permission requested when the user first flips the toggle ON. SCHEMA: additive.
-
-### `WeightEntry.swift`
-One weight log. Has-Foo companions on `bodyFatPercent` (via `hasBodyFat`) and `leanMassKg` (via `hasLeanMass`). `source: WeightSource` is `manual / healthkit / renpho`. RENPHO is detected from the HK sample's `sourceRevision.source.bundleIdentifier` (`com.renpho.RenphoHealth`, `com.qnniu.renpho`) and source name, case-insensitive.
-
-`hkSampleUUID: String?` (audit H5) is the primary dedup key for HK auto-imports. ±5-min date window is the secondary fallback for manual rows and pre-UUID-field legacy rows.
-
-`deletedFromIndex: Bool = false` is the swipe-as-tombstone flag. `@Query` filters on `!deletedFromIndex` to hide it from the UI; HK dedup predicates do **not** filter on this flag, so a swipe-deleted row prevents re-import resurrection of the same Apple Health sample.
-
-### `WorkoutSession.swift`
-One workout, manual or HK-imported. Six `WorkoutType` cases: `cycling`, `running`, `swimming`, `strength`, `squash`, `other`.
-
-`hkWorkoutUUID: String?` is the primary dedup key; ±2-min date window is the secondary. Audit baseline.
-
-`strengthSessionId: String?` is a **soft link** to `StrengthSession.id` when `type == .strength`. Soft because the parallel StrengthSession may be hard-deleted independently (cascades into its performances + sets), while the WorkoutSession is only soft-deleted via `deletedFromIndex`. Read sites guard for the dangling case ("Strength session deleted").
-
-Has-Foo flags gate every optional numeric: `hasKcal`, `hasHeartRate`, `hasMaxHeartRate`, `hasDistance`, `hasIntensity`.
-
-`source: WorkoutSourceKind` is `manual / healthkit`. Manual logs from `LogCyclingSheet` / `LogOtherWorkoutSheet` insert with `source = .manual`; HK observer inserts with `source = .healthkit`.
-
-### `StrengthSession.swift`
-One gym session. Stable string `id` (UUID) so the `WorkoutSession.strengthSessionId` soft-link survives.
-
-Cascade-deletes `[ExercisePerformance]?` via `@Relationship(deleteRule: .cascade, inverse: \.session)`. The performances in turn cascade to `[SetEntry]?`. Hard-deleting a StrengthSession therefore wipes its performances + sets in one operation.
-
-`inProgress: Bool = true` (audit H16) replaces the previous `endDate <= date` heuristic that lied about state on a fast CPU (a session created and immediately ended in the same tick returned `true` for `inProgress`). The flag is set explicitly by `ActiveStrengthSessionView.endSession`.
-
-Computed helpers: `orderedPerformances`, `durationMinutes`, `durationSeconds`, `isInProgress`.
-
-### `ExercisePerformance.swift`
-One (session, userExercise) pair. `userExerciseId: String` is a soft link to `UserExercise.id` — removing a UserExercise from the library doesn't cascade through old session history; the read site renders "Unknown exercise" when dangling.
-
-Cascade-deletes `[SetEntry]?`.
-
-Computed helpers: `orderedSets`, `topSetWeightKg`.
-
-### `SetEntry.swift`
-One completed set. `weightKg: Double`, `reps: Int`, `completedAt: Date`. `weightKg` can be negative for assisted exercises (subtracts from bodyweight).
-
-### `UserExercise.swift`
-User's personal exercise library. `id` is the catalog id verbatim ("bench-press", "squat", "deadlift", ...). 10-item starter catalog defined in `ExerciseCatalog.starter`: 5 free-weight, 3 machine, 2 bodyweight.
-
-`hiddenFromLibrary: Bool = false` is the soft-hide flag (audit DQ4). Library + picker `@Query` filter on `!hiddenFromLibrary`. Swiping a library row sets it to true. `AddExerciseSheet` un-hides if the user re-adds the same catalog id instead of inserting a duplicate (catalog ids are deterministic; duplicate inserts would break soft-link resolution in old session history).
-
-Enums in this file: `ExerciseKind` (free / machine / bodyweight / assisted), `ExerciseDefinition` (catalog entry shape), `ExerciseCatalog` (static `starter` array + `byId(_:)` lookup).
-
-`notes: String = ""` is `// DEPRECATED:` — no path reads or writes it.
-
-### `DailyHealthMetrics.swift`
-One row per calendar day. HRV (SDNN) in ms, VO2 max, resting HR. Upserted from `HealthKitService.fetchDailyHealth()` keyed on `startOfDay(local)`.
-
-Has-Foo companions on each numeric field: `hasHRV`, `hasVO2Max`, `hasRestingHeartRate`.
-
-`date` property default is `Date.distantPast` deliberately (audit H20) — a sentinel value so any latent migration is visible instead of collapsing every back-filled row to a single timestamp on the upsert key. Real inserts always pass `init(date: startOfDay)`.
-
-### `NutritionEntry.swift`
-One meal/food log. `mealType: MealType` (breakfast / lunch / dinner / snack), `source: NutritionSource` (manual / barcode / photo-deprecated).
-
-`photoEstimated: Bool` and `NutritionSource.photo` are `// DEPRECATED:` (audit H3) — the photo-to-macros feature was cut from v1 (`Services/ClaudeService.swift` + `Models/PhotoEstimateLog.swift` deleted in audit H1 + H2). Fields stay per the schema rules ("never delete a field"); the enum case stays as a decoder fallback if any persisted row from a pre-deletion build is ever encountered.
-
-`deletedFromIndex` is also `// DEPRECATED:` here — Nutrition entries never mirror to HealthKit (Index doesn't write food back), so there's no dedup contract a tombstone could protect. The swipe path uses `context.delete(entry)` for hard delete.
-
-### `FoodProduct.swift`
-Barcode-keyed product cache. Per-100g (or per-100ml) macros. `useCount + lastUsed` track frequency — but those metrics are not currently consumed by the Frequent chips on Nutrition main (those derive directly from `NutritionEntry` label frequency over the last 30 days; FoodProduct metrics are a future hook).
-
-`unit: String` records solid vs liquid ("g" or "ml") so cached scans default the quantity input correctly. Detection happens in `OpenFoodFactsService` — checks `product_quantity_unit` / `serving_quantity_unit` / `quantity_unit` for ml-like keywords, falls back to `categories_tags` matching a liquid set (beverages, drinks, sodas, syrups, etc.).
-
-`ScannedFood` is a separate `Sendable` value type returned by the OFF fetch (`OpenFoodFactsService.fetch(barcode:)`) — its `macros(forGrams:)` scales the per-100 values to a user-picked quantity.
-
-### `AIUsageRecord.swift`
-One row per successful Anthropic API call. `id` (UUID), `date`, `inputTokens`, `outputTokens`, `estimatedCostUSD`. The sum of `estimatedCostUSD` across rows in the current calendar month drives `ClaudeService.monthToDateSpendUSD` and the budget gate. Cost is computed at insert time from token counts × the per-million-token rates published by Anthropic; if Anthropic later changes pricing, historical rows reflect what was actually billed.
-
-SCHEMA: additive — added with the AI macro estimator foundation. Existing installs migrate cleanly via SwiftData lightweight migration (new `@Model` type, no existing rows to backfill).
-
----
-
-## Services (`Services/`)
-
-### `IdentityService.swift` — protocol + types
-
-Identity is behind a protocol so the dev stub and the real Sign in with Apple implementation are swap-equivalent.
-
-```swift
-protocol IdentityService: AnyObject, Sendable {
-    var currentUserId: String? { get }
-    var isAuthenticated: Bool { get }
-    func signIn() async throws -> String
-    func signOut() async
-}
+```
+Index/
+├── README.md, CONTEXT.md, CLAUDE.md, PROGRESS.md, BACKLOG.md
+└── Index/                                  Xcode project + sources
+    ├── Index.xcodeproj/
+    └── Index/
+        ├── IndexApp.swift                  @main, ModelContainer
+        ├── ContentView.swift               Root router + TabView
+        ├── Index.entitlements              HealthKit + background delivery
+        ├── Assets.xcassets/
+        ├── Models/                         11 @Model classes + IndexSchema
+        ├── Services/                       15 service files
+        └── Views/
+            ├── Body/
+            ├── Fitness/
+            ├── Nutrition/
+            ├── Strength/
+            ├── Settings/
+            ├── Onboarding/
+            └── Theme/
 ```
 
-`IdentityError` exposes `signInFailed`, `notImplemented`, `cancelled`. `AppDependencies.identity` is the single line that changes when the swap happens — `static let identity: any IdentityService = DevIdentityService()` flips to `AppleSignInIdentityService()`.
+---
 
-### `DevIdentityService.swift`
+## 3. App lifecycle & persistence
 
-UUID-based stand-in. Stores the UUID in **Keychain** with `kSecAttrAccessibleAfterFirstUnlock` + `kSecAttrSynchronizable` (audit H21) — identity survives uninstall + reinstall when iCloud Keychain is on, matching the eventual `AppleSignInIdentityService` survivor semantics.
+### `IndexApp.swift`
 
-One-shot UserDefaults → Keychain migration on init (copies legacy UD value, deletes UD entry) for installs from before the H21 fix.
+`@main`. Holds a single static `sharedContainer: ModelContainer` initialized lazily on first access. The container is constructed from `Schema(IndexSchema.models)`.
 
-`signIn()` mints a UUID on first call and persists it to Keychain. `signOut()` clears the Keychain entry.
+Store selection at launch:
 
-### `AppleSignInIdentityService.swift`
+- If `DemoMode.isEnabled` is true AND `DemoMode.demoStoreURL()` resolves, the `ModelConfiguration` is built with that URL (`Index-demo.store` in Application Support).
+- Otherwise the `ModelConfiguration` uses the default location (no URL passed): SwiftData places `default.store` in Application Support.
 
-Stubbed implementation awaiting paid Developer Program enrollment. Audit H7 — **non-trapping** stubs (no `fatalError`). `currentUserId` reads Keychain; `isAuthenticated` returns false; `signIn()` throws `IdentityError.notImplemented`; `signOut()` is a no-op.
+The two stores are physically separate files. Only one `ModelConfiguration` is constructed per launch, gated by the flag. Flipping the toggle in Settings calls `exit(0)`; the next launch reads the flag and opens the other store.
 
-`FUTURE:` comments at every stub describe the post-enrollment shape: `ASAuthorizationAppleIDRequest`, `ASAuthorizationController`, persist `userIdentifier` to Keychain with iCloud sync, revocation detection via `provider.getCredentialState(forUserID:)`.
+Container recovery:
 
-### `ProfileService.swift`
+- `try ModelContainer(for:configurations:)` is wrapped in a discriminated `do/catch`.
+- `SwiftDataError.loadIssueModelContainer` → single wipe of the active store's `.store / .store-shm / .store-wal` files via `deleteStoreFiles()`, then one retry. The wipe respects which store is active (real vs demo); the other is untouched. Sets `storeResetFlagKey` so `ContentView` surfaces a one-time alert.
+- Any other error → no wipe, sets `hardErrorFlagKey`, falls back to an in-memory container via `makeFallbackContainer(schema:)`. `ContentView` reads the flag and renders a hard-error screen.
+- The post-wipe retry also falls back to in-memory on a second failure.
 
-Source of truth for the active Profile. Does **not** hold a `ModelContext` — every method takes one. This way a single instance survives container rebuilds (e.g., erase-all-data flows).
+Services constructed at launch and injected into the SwiftUI environment:
 
-Lifecycle:
+- `ProfileService(identity: AppDependencies.identity)`
+- `NotificationService.shared`
+- `HealthKitService(modelContainer: sharedContainer, notificationService: .shared)`
+- `ClaudeService()`
 
-- `refresh(in:)` — looks up the Profile whose `userId == identity.currentUserId`. If no exact match but exactly one orphan exists, stages it for migration in `orphanProfileForMigration` (most likely cause: Personal Team SIWA `userIdentifier` changed to the paid-team one).
-- `acceptMigration(in:)` — re-keys the orphan's `userId` to the current identity. Audit H6: explicit `try context.save()` so a kill window doesn't lose the re-key.
-- `declineMigration(in:)` — deletes the orphan, creates a fresh Profile. Same transactional save.
-- `createFreshProfile(in:)` — onboarding-completion path. Inserts a new Profile keyed to the current identity. Caller is responsible for the explicit save (audit H12, done in `ContentView.completeOnboarding`).
+The `WindowGroup`'s root is `ContentView()` with `.modelContainer(modelContainer)` plus the four `.environment(...)` injections.
 
-Phase 7 update methods, all `throws ProfileUpdateError`:
+### `ContentView.swift`
 
-- `updateName`, `updateAge`, `updateHeight`, `updateSex`, `updateGoal`, `updateCalorieAdjustment`, `updateProteinTarget`, `updateTargetWeight` — single-field updates with explicit save.
-- `setModuleEnabled(_:enabled:in:)` — adds/removes from `Profile.enabledModules`.
-- `setEatBackWorkoutCalories`, `setManualWeightLoggingEnabled`, `setManualFitnessLoggingEnabled` — Bool toggles.
-- `setNotifyOnNewWorkout`, `setNotifyOnNewWeight` — `async throws`. On flip-ON they request iOS permission first via `NotificationService.requestPermission()`; on denial they throw `PermissionError.denied` so the caller (Settings) can surface the one-time "enable in iOS Settings" alert and leave the toggle off.
+Root router. `.task` runs once per cold start and:
 
-Destructive paths:
+1. Bails to a hard-error screen if `hardErrorFlagKey` is set.
+2. Calls `profileService.refresh(in:)` to resolve the active `Profile` (or stage an orphan for migration).
+3. Performs a one-shot `calorieAdjustmentKcal` sign migration (negates any positive legacy value), gated by `calorieAdjustmentSignMigratedKey`.
+4. Surfaces the "Local data was reset" alert if `storeResetFlagKey` is set.
+5. If `DemoMode.isEnabled` AND `!DemoDataService.isSeeded(in: modelContext)`, calls `DemoDataService.seedFreshDataset(in:)` and re-runs `profileService.refresh(in:)`.
+6. If a profile exists AND `!DemoMode.isEnabled`, awaits `hkService.bootstrapIfAuthorized()`.
 
-- `resetAllData(in:) throws` — wipes WeightEntry, WorkoutSession, StrengthSession (+ cascade ExercisePerformance + SetEntry), NutritionEntry, DailyHealthMetrics, FoodProduct. **Preserves** Profile and UserExercise library. HK previously-imported rows return on next observer fire if HK auth is still granted (UUID dedup keeps re-imports from duplicating).
-- `deleteAccount(in:) async throws` — wipes everything including Profile + UserExercise, signs out of identity, clears `activeProfile`.
-- `signOut() async` — clears identity state, sets `activeProfile = nil`. Profile rows remain on disk (become orphan-eligible on the next sign-in if a different userId comes back). ContentView observes the nil profile and routes to OnboardingView.
+Routes based on state:
+
+- Hard-error flag set → hard-error screen with a reset-all-data action.
+- `profileService.orphanProfileForMigration != nil` → migration prompt (Import / Start fresh).
+- Active profile with `onboardingCompleted == true` → `TabView` with three tabs, each wrapped in `IndexTabScaffold { ... }` which paints `IndexPalette.Surface.background` and ignores safe area. The `TabView`'s `.tint` switches with the active tab via `currentTabAccent`.
+- Otherwise → `OnboardingView`.
+
+Notification taps are observed via `NotificationService.tabRouteNotificationName` and routed to the matching `TabSlot`.
+
+---
+
+## 4. Data model
+
+The schema list in `IndexSchema.models` contains 11 `@Model` types: `Profile`, `WeightEntry`, `DailyHealthMetrics`, `WorkoutSession`, `StrengthSession`, `ExercisePerformance`, `SetEntry`, `UserExercise`, `NutritionEntry`, `FoodProduct`, `AIUsageRecord`.
+
+Every property has a default; every to-one relationship is optional; there are no `@Attribute(.unique)` declarations. SwiftData lightweight migration handles additive changes (new field with default, new model in the list).
+
+### `Profile`
+
+One per active `userId`. Stored properties: `userId`, `name`, `age`, `heightCm`, `sexRaw`, `activityLevelRaw`, `goalRaw`, `targetWeightKg`, `hasTargetWeight`, `unitsRaw`, `enabledModulesJSON`, `calorieAdjustmentKcal`, `proteinTargetG`, `eatBackWorkoutCalories`, `manualWeightLoggingEnabled`, `manualFitnessLoggingEnabled`, `notifyOnNewWorkout`, `notifyOnNewWeight`, `appleHealthAuthorized`, `onboardingCompleted`, `createdAt`. Computed accessors decode raw enum strings (`sex`, `activityLevel`, `goal`, `units`) and a JSON `Set<Module>` (`enabledModules`). Decode/encode failures of the module blob fall back to the full default set.
+
+Enums declared in the same file: `Sex` (male/female), `ActivityLevel` (sedentary…extraActive, with Harris-Benedict multiplier), `Goal` (lose/maintain/gain), `Units` (metric/imperial), `Module` (body/fitness/nutrition).
+
+### `WeightEntry`
+
+One weigh-in. Stored: `date`, `weightKg`, `bodyFatPercent`, `hasBodyFat`, `leanMassKg`, `hasLeanMass`, `notes`, `sourceRaw`, `deletedFromIndex`, `hkSampleUUID: String?`. `WeightSource` enum: `manual`, `healthkit`, `renpho`.
+
+### `WorkoutSession`
+
+One workout. Stored: `date`, `typeRaw`, `durationMinutes`, `kcalBurned`, `hasKcal`, `avgHeartRate`, `hasHeartRate`, `maxHeartRate`, `hasMaxHeartRate`, `distanceKm`, `hasDistance`, `intensity`, `hasIntensity`, `sourceRaw`, `notes`, `deletedFromIndex`, `strengthSessionId`, `hkWorkoutUUID: String?`. `WorkoutType`: `cycling`, `running`, `swimming`, `strength`, `squash`, `other`. `WorkoutSourceKind`: `manual`, `healthkit`. `strengthSessionId` is a soft link by `String` to `StrengthSession.id`.
+
+### `StrengthSession`
+
+One gym session. Stored: `id: String` (UUID), `date`, `endDate`, `notes`, `inProgress`. Owns `[ExercisePerformance]?` via `@Relationship(deleteRule: .cascade, inverse: \ExercisePerformance.session)`. Helpers: `orderedPerformances`, `durationSeconds`, `durationMinutes`, `isInProgress`.
+
+### `ExercisePerformance`
+
+Stored: `session: StrengthSession?`, `userExerciseId: String`, `order`. Owns `[SetEntry]?` via `@Relationship(deleteRule: .cascade, inverse: \SetEntry.performance)`. Helpers: `orderedSets`, `topSetWeightKg`. `userExerciseId` is a soft link by `String` to `UserExercise.id`.
+
+### `SetEntry`
+
+Stored: `performance: ExercisePerformance?`, `order`, `weightKg`, `reps`, `completedAt`.
+
+### `UserExercise`
+
+Stored: `id: String`, `name`, `kindRaw`, `defaultRestSeconds`, `displayOrder`, `notes`, `hiddenFromLibrary`. The catalog `ExerciseCatalog.starter` is a static 10-item array (`bench-press`, `squat`, `deadlift`, `overhead-press`, `bent-over-row`, `pull-up`, `dip`, `lat-pulldown`, `leg-press`, `cable-row`). `UserExercise.fromCatalog(_:displayOrder:)` constructs a row keyed on the catalog id. `ExerciseKind`: `free`, `machine`, `bodyweight`, `assisted`.
+
+### `DailyHealthMetrics`
+
+Upserted once per calendar day. Stored: `date` (default `Date.distantPast`), `hrvMs`, `hasHRV`, `vo2Max`, `hasVO2Max`, `restingHeartRate`, `hasRestingHeartRate`.
+
+### `NutritionEntry`
+
+Stored: `date`, `label`, `kcal`, `protein`, `carbs`, `fat`, `mealTypeRaw`, `sourceRaw`, `photoEstimated`, `deletedFromIndex`. `MealType`: `breakfast`, `lunch`, `dinner`, `snack`. `NutritionSource`: `manual`, `barcode`, `photo`. `photoEstimated`, `NutritionSource.photo`, and `deletedFromIndex` on this model are marked deprecated in source but remain in the schema.
+
+### `FoodProduct`
+
+Barcode-keyed product cache. Stored: `barcode`, `name`, `brand`, `kcalPer100g`, `proteinPer100g`, `carbsPer100g`, `fatPer100g`, `lastUsed`, `useCount`, `unit` ("g" or "ml"). Helper `macros(forGrams:)` scales the per-100 values. A separate value type `ScannedFood` mirrors the same shape for the OFF fetch return.
+
+### `AIUsageRecord`
+
+Stored: `id: UUID`, `date`, `inputTokens`, `outputTokens`, `estimatedCostUSD`. One row per successful Anthropic API call.
+
+---
+
+## 5. Services
 
 ### `HealthKitService.swift`
 
-The HK boundary. `@MainActor @Observable`. Takes a `ModelContainer` at construction (audit H10) plus a `NotificationService` for post-insert notifications.
+`@Observable @MainActor final class`. Constructed in `IndexApp` with the shared `ModelContainer` plus `NotificationService`. Internal context comes from `modelContainer.mainContext`.
 
-**Read types** (15 — 14 quantity + 1 category): bodyMass, bodyFatPercentage, leanBodyMass, heartRateVariabilitySDNN, vo2Max, restingHeartRate, workoutType, heartRate, activeEnergyBurned, basalEnergyBurned, distanceCycling, distanceWalkingRunning, distanceSwimming, cyclingPower, **sleepAnalysis** (category — powers the Body "Time asleep" tile via `fetchLastNightSleep`).
+Observable state: `isAuthorized`, `isBackfilling`, `latestBodyFat`, `latestLeanMass`, `bodyFatHistory`, `leanMassHistory`.
 
-**Write types** (1): bodyMass only — manual weight mirrors back to Apple Health.
+UserDefaults keys it owns: `hk_import_workouts`, `hk_import_weight`, `hk_last_workout_sync`, `hk_workout_anchor`, `didHistoricalBackfill`. Toggles default to `true` when the key is absent.
 
-Published state via `@Observable`:
-- `isAuthorized: Bool` — `.sharingAuthorized` status for bodyMass write (the most reliable single-type probe; HK doesn't expose per-read-type auth).
-- `isBackfilling: Bool` — true during the one-time historical workout import (`importHistoricalWorkouts(since:)`). Drives the FitnessMainView banner.
-- `latestBodyFat / latestLeanMass: (value, date)?` — most recent samples from any source, surfaced on BodyView body composition tiles.
-- `bodyFatHistory / leanMassHistory: [(date, value)]` — 90-day history (chart-ready).
+Read types (15): `bodyMass`, `bodyFatPercentage`, `leanBodyMass`, `heartRateVariabilitySDNN`, `vo2Max`, `restingHeartRate`, `workoutType`, `heartRate`, `activeEnergyBurned`, `basalEnergyBurned`, `distanceCycling`, `distanceWalkingRunning`, `distanceSwimming`, `cyclingPower`, `sleepAnalysis`. Write type (1): `bodyMass`.
 
-Auth flow:
-- `requestAuthorization()` — onboarding step 8 path. Sets `isAuthorized` and runs `bootstrap()` on grant.
-- `bootstrapIfAuthorized()` — app-launch path. Verifies prior authorization and runs `bootstrap()` if so.
-- `bootstrap()` private — runs `fetchAll()`, `fetchDailyHealth()`, the one-time historical workout backfill (if the `didBackfillKey` UD flag is unset), the initial `importWorkouts()` sweep, then arms the body-mass and workout observers (each gated on its own toggle).
+Key methods:
 
-Body mass observer:
-- `startObservingBodyMass()` — arms `HKObserverQuery` + `store.enableBackgroundDelivery`. Idempotent (early-returns if already armed).
-- `stopBodyMassObserver()` — Settings toggle-off (audit DQ10 — stops new delivery, does NOT delete already-imported rows).
-- `handleNewBodyMass()` private — the observer fire handler. Fetches the latest bodyMass sample, groups same-source-bundle-id body-fat and lean-mass samples within ±5 min, computes the `WeightSource` (RENPHO detection via bundle id / source name case-insensitive), runs two-tier dedup (UUID primary, ±5-min secondary), inserts the `WeightEntry`, then calls `maybeNotifyNewWeight` (gated on `Profile.notifyOnNewWeight` + iOS auth).
+- `requestAuthorization() async` — requests the read+write sets; on grant calls `bootstrap()`.
+- `bootstrapIfAuthorized() async` — gated bootstrap for launch.
+- `fetchAll() async` — refreshes the observable composition snapshots.
+- `startObservingBodyMass()` / `stopBodyMassObserver()` — `HKObserverQuery` + `enableBackgroundDelivery`. Retained so a Settings toggle-off can stop it without deleting prior rows.
+- `importWorkouts()` — initial sweep since `lastWorkoutSyncKey`.
+- `importHistoricalWorkouts(since:)` — one-shot backfill, gated by `didBackfillKey`.
+- `startObservingWorkouts()` / `stopWorkoutObserver()` — `HKAnchoredObjectQuery`. The anchor is loaded from / saved to `workoutAnchorKey`; the anchor is **not** advanced while the workout-import toggle is off.
+- `fetchDailyHealth() async` — pulls latest HRV / VO2 / resting-HR samples and upserts a `DailyHealthMetrics` row keyed on `startOfDay(today)`.
+- `saveWeight(kg:date:) async throws` — writes a sample to HealthKit. Throws on rejection so the caller can surface a banner without rolling back the local row.
+- `fetchSwimDetail(forWorkoutUUID:) async -> SwimDetailData?` — swim-specific enrichment: HR samples, per-lap stroke/SWOLF, per-set grouping, pool length.
+- `fetchLastNightSleep() async -> TimeInterval?` — sleep `HKCategoryType(.sleepAnalysis)` between yesterday 18:00 and today 14:00. Sums only the asleep values (`asleepCore`, `asleepDeep`, `asleepREM`, `asleepUnspecified`); excludes `inBed`. Groups samples by `sourceRevision.source.bundleIdentifier` and returns the bundle with the largest summed asleep duration.
+- `fetchHRSeries(forWorkoutUUID:) async -> [SwimHRSample]` — generic per-workout HR samples by UUID. Used by every workout type with HR data.
 
-Workout import (three entry points, all routing through `processHKWorkout(_:context:notifyOnInsert:)`):
-- `importHistoricalWorkouts(since:)` — one-time backfill since Jan 1 of the current year. Calls `processHKWorkout(..., notifyOnInsert: false)` so a 50+ workout backfill doesn't surface as 50 banners. Sets `isBackfilling = true` for the duration.
-- `importWorkouts()` — initial bootstrap sweep since `lastWorkoutSyncKey` (defaults 7 days back on first run). Calls with `notifyOnInsert: true` — the user expects to see anything that arrived while the app was closed.
-- `startObservingWorkouts()` — anchored observer. Same handler for both `resultsHandler` and `updateHandler`. Gated on the workout import toggle; if the toggle is off the anchor is **not** advanced (audit baseline: prevents samples arriving in the off-window from being permanently skipped). Calls with `notifyOnInsert: true`.
-
-`processHKWorkout(_:context:notifyOnInsert:)` private — two-tier dedup (`hkWorkoutUUID` primary, ±2-min date-window secondary, neither filtering on `deletedFromIndex`), HR / kcal / distance enrichment via `workout.statistics(for:)`, max-HR fetch via `fetchMaxHeartRate(start:end:)`, type mapping via `mapWorkoutType(_:)`. Inserts a `WorkoutSession`, then calls `maybeNotifyNewWorkout` if requested.
-
-Apple Watch workout-type mapping:
-
-| HKWorkoutActivityType | Index `WorkoutType` |
-|---|---|
-| `.cycling` | `.cycling` |
-| `.running`, `.walking` | `.running` |
-| `.swimming`, `.swimBikeRun` | `.swimming` |
-| `.squash` | `.squash` |
-| `.traditionalStrengthTraining`, `.functionalStrengthTraining`, `.crossTraining`, `.highIntensityIntervalTraining`, `.coreTraining` | `.strength` |
-| anything else | `.other` |
-
-Hiking, yoga, pilates, tennis, badminton, racquetball, table tennis, rowing, elliptical, stair-stepping all map to `.other` deliberately — none drive the protein-add bonus the way strength training does.
-
-Notification fires:
-- `maybeNotifyNewWeight(weightKg:previousKg:)` private — fetches the active profile, checks `notifyOnNewWeight`, checks `notificationService.isAuthorized()`, schedules a "New weigh-in" notification with optional `(±delta from previous)` suffix.
-- `maybeNotifyNewWorkout(type:durationMinutes:kcal:avgHR:)` private — same gate pattern. Schedules a "New workout" notification with `{type}, {duration}m · {kcal} kcal · {avgHR} avg BPM` body. Missing fields drop their segment.
-- `fetchActiveProfile()` private — `FetchDescriptor<Profile>` returns the first row with `onboardingCompleted == true`. Couples HK to Profile only via this read; ProfileService isn't injected (the read is small and per-notification).
-
-Daily health vitals:
-- `fetchDailyHealth()` — runs on every cold launch (cheap). Reads latest HRV / VO2 / resting HR. Upserts `DailyHealthMetrics` keyed on `startOfDay(today)`.
-
-Write path:
-- `saveWeight(kg:date:) async throws` (audit H4) — mirrors a manual weight write to Apple Health. Returns normally on success. Throws on HK rejection (auth not granted, sample format invalid). Caller (`LogWeightSheet`) keeps the local entry regardless and surfaces a non-blocking banner — Apple Health is a peer, not master (DQ3).
-
-Swim detail enrichment (lazy, for WorkoutDetailView swim flow):
-- `fetchSwimDetail(forWorkoutUUID:) async -> SwimDetailData?` — fetches the original HKWorkout by UUID via `HKSampleQuery`, then walks the workout's `events: [HKWorkoutEvent]` and `metadata` to build lap (`SwimLength`) and set (`SwimSet`) data. Stroke detection from per-lap metadata, SWOLF aggregation per set, average HR sampling, pace per 100m, pool length detection (workout metadata first, per-lap fallback). Returns nil on missing UUID or auth-state failure.
-
-Generic per-workout HR series (for any HK-sourced workout with HR data):
-- `fetchHRSeries(forWorkoutUUID:) async -> [SwimHRSample]` — looks up the HKWorkout by UUID, returns `(date, bpm)` samples within its window. Powers the HR chart in `WorkoutDetailView` for Squash / Cycling / Running / Other / Swimming alike (Case A — the series was already live-fetchable; swim used to bury this inside `fetchSwimDetail`). Empty result means the workout had no HR samples (rare; the summary `hasHeartRate` flag is checked first).
-
-Sleep duration (for the Body "Time asleep" tile):
-- `fetchLastNightSleep() async -> TimeInterval?` — queries `HKCategoryType(.sleepAnalysis)` in a yesterday-6pm → today-2pm window (captures sleep that crosses midnight). Sums only the **asleep** category values (`asleepCore` / `asleepDeep` / `asleepREM` / `asleepUnspecified`) — `inBed` is dropped because it double-counts. When multiple sources wrote samples (Apple Watch + Sleep Cycle etc.), picks the single source-bundle with the largest summed asleep duration. Returns nil on no data / no auth so the tile renders the "—" empty state.
-
-Persistent state in UserDefaults:
-- `importWorkoutsKey` ("hk_import_workouts") — workout import toggle. Default ON.
-- `importWeightKey` ("hk_import_weight") — weight import toggle. Default ON.
-- `lastWorkoutSyncKey` ("hk_last_workout_sync") — cutoff for the initial sweep.
-- `workoutAnchorKey` ("hk_workout_anchor") — anchored-query anchor blob. Loaded on observer arm; saved on every fire.
-- `didBackfillKey` ("didHistoricalBackfill") — one-shot historical-backfill flag.
-
-### `MetricsEngine.swift`
-
-Pure-static math. No state, no fetching — callers pass `@Query` data in.
-
-Body math (ported verbatim from v0 with citations preserved):
-- `bmi(weightKg:heightCm:)` → `kg / m²`. WHO 1995 categories via `bmiCategory(_:)`.
-- `bmr(weightKg:heightCm:age:sex:)` → Mifflin-St Jeor 1990. `Male: 10W + 6.25H − 5A + 5`, `Female: 10W + 6.25H − 5A − 161`.
-- `tdee(bmr:activityLevel:)` → `bmr × activityMultiplier` (Harris-Benedict, table in `ActivityLevel`).
-- `leanBodyMass(weightKg:heightCm:sex:)` → Boer 1984. Used as a fallback when HK doesn't provide lean mass.
-- `idealWeightRange(heightCm:sex:)` → Devine 1974 ±10%.
-
-Unit conversions: `kgToLbs`, `lbsToKg`, `cmToFtIn` — present for the imperial-units feature flag, not currently called by any view (no `Profile.units` branching yet).
-
-Cross-module target reconciliation:
-- `dailyTargets(profile:latestWeight:todaysWorkouts:last14DaysWeight:) -> DailyTargets`
-  - Base TDEE from latest weight (falls back to target weight or 75 kg sentinel).
-  - **Linear signed adjustment**: `caloriesBase = tdeeValue + adjustment`. No silent clamp — a prior `max(1200, BMR * 1.1)` soft floor was removed because it silently overrode user deficits (2674 TDEE - 1000 was returning 2139 instead of 1674). Safety lives at the input boundary: the `CalorieAdjustmentEditSheet` slider is bounded to `[-1000, +1000]` in 50-kcal steps. The 2026 sign-fix migration runs once in `ContentView.task` to flip legacy positive values to negative.
-  - Workout calories via MET × bodyweight × hours (cycling 7.0, running 9.0, swimming 8.0, squash 7.3, strength/other 5.0; capped at 1000 kcal/day). **Gated on `profile.eatBackWorkoutCalories`** — when off, workout contribution is 0.
-  - Aggressive-loss buffer (`+200 kcal` when 14-day weekly weight loss > 1%) — guards against under-fueling on fast cuts.
-  - Workout protein bonus: strength `+0.4 g/kg`, endurance ≥60min `+0.3 g/kg`, endurance <60min `+0.2 g/kg`, squash time-based, other `+0.2 g/kg`. Capped at `+0.6 g/kg` workout-bonus, `2.5 g/kg` total.
-
-`DailyTargets` is the return shape: `calories`, `caloriesBase`, `calorieAdjustmentReason`, `protein`, `proteinBase`, `proteinAdjustmentReason`, `tdee`, `deficit` (signed adjustment under the new convention; name kept for backwards compat — no external consumer reads it), `workoutCalories`, `trendCalories`, `workoutProteinAdded`.
-
-### `BrainService.swift`
-
-Pure-static rules engine producing one `ModuleInsight?` per module. First-match-wins priority. Strict templates — no LLM, no free-form generation.
-
-`ModuleInsight`: stable per-rule `id` (for a future dismiss-state layer), `module: Module`, `message: String`.
-
-Body rules (first match wins):
-1. `body.target_eta` — has a target weight + 14-day trend points to it. ETA in days computed from daily rate. Caps at 365 days.
-2. `body.hrv_down` — latest HRV is >10% below the 7-day baseline. Suggests lighter training.
-3. `body.hrv_up` — latest HRV is >10% above the 7-day baseline.
-4. `body.stable` — 14-day weight range under 0.5 kg.
-
-Fitness rules:
-1. `fitness.hrv_recovery` — HRV down + ≥3 workouts this week. Suggests a recovery day.
-2. `fitness.strong_week` — ≥4 workouts this week.
-3. `fitness.quiet_week` — <2 this week vs ≥3 last week.
-4. `fitness.on_pace` — 2–3 sessions this week.
-
-Nutrition rules:
-1. `nutrition.workout_adjustment` — `targets.workoutCalories > 0`. Auto-hides when `eatBackWorkoutCalories` is off (MetricsEngine zeros the value).
-2. `nutrition.fast_loss` — aggressive-loss buffer added (+200 kcal).
-3. `nutrition.low_protein` — `calorieAdjustmentKcal < 0` (cutting) + 3+ days under 80% of protein target in the last 3. Flipped to `< 0` after the sign-convention fix.
-4. `nutrition.meal_gap` — 4+ hours since last meal during waking window (08:00–20:00 local).
-
-Note: Brain insight pills are no longer rendered on FitnessMainView or NutritionMainView (removed in a later refactor). The engine still produces them — a future surface can consume.
-
-### `NotificationService.swift`
-
-iOS local-notification gateway. `@MainActor @Observable` with a `static let shared` singleton because both `IndexApp`'s `@State` injection AND `HealthKitService`'s construction-time dependency need the same registered `UNUserNotificationCenterDelegate`.
-
-`init()` sets `UNUserNotificationCenter.current().delegate = self` (must be done before any tap can occur). Otherwise stateless.
-
-Permission flow:
-- `requestPermission() async throws` — checks current authorization, returns early if already authorized, throws `PermissionError.denied` if previously denied (so the caller can surface the one-time "enable in iOS Settings" alert without re-prompting). If `.notDetermined`, calls `UNUserNotificationCenter.requestAuthorization(options: [.alert, .sound, .badge])`.
-- `isAuthorized() async -> Bool` — read-only check used by HK observer paths before scheduling. Falls through to false on `.denied` / `.notDetermined`.
-
-Scheduling:
-- `scheduleNewWorkout(typeLabel:durationMinutes:kcal:avgHR:)` — schedules a "New workout" notification with body `{type}, {Nm} · {kcal} kcal · {avgHR} avg BPM`. Missing fields drop their segment (kcal/avgHR absent for some manual swim logs). Tap routes to fitness.
-- `scheduleNewWeight(weightKg:deltaKg:)` — "New weigh-in", body `{kg} kg (+/-{delta} from previous)`. Delta omitted on the first weigh-in ever (no prior entry to compare). Tap routes to body.
-- `schedule(content:idPrefix:)` private — wraps `UNUserNotificationCenter.add(_:)` with a 1-second trigger.
-
-Tap routing:
-- `tabRouteNotificationName: Notification.Name` — posted on tap with `destinationTab` in userInfo.
-- `userNotificationCenter(_:willPresent:withCompletionHandler:)` — foreground presentation returns `[.banner, .sound]` so the user sees the alert even when the app is active.
-- `userNotificationCenter(_:didReceive:withCompletionHandler:)` — tap handler. Reads `applicationState`; if `.active` (already foreground), skips the route post to avoid yanking the user across tabs. Otherwise posts the broadcast that `ContentView.onReceive` picks up.
-
-### `SafeFormat.swift`
-
-Defensive formatters for any `Int(Double)` display path. Returns `"—"` for non-finite (NaN, Infinity) or out-of-threshold values. Floor against the 2026-05-14 incident where a `WeightEntry.weightKg` of ~5×10³⁸ trapped `Int(kg)` in BodyView's formatter and broke the launch path.
-
-- `decimal(_:fractionDigits:threshold:)` — formats `Double` to a decimal string (default threshold `1e9`, 1 fraction digit).
-- `int(_:threshold:)` — formats `Double` as integer (default threshold `1e9`).
-- `percent(_:threshold:)` — formats as percent without the `%` (default threshold `1e6`).
-
-### `OpenFoodFactsService.swift`
-
-OFF API client. Verbatim v0 port — `JSONSerialization` + type-tolerant `(value as? Double) ?? (value as? Int).map(Double.init) ?? 0` parsing. A v2 strict-Codable rewrite was tried and returned zeros for half the products; reverted.
-
-- `fetch(barcode:) async throws -> ScannedFood` — GET `https://world.openfoodfacts.org/api/v2/product/{barcode}.json`. Parses `product.nutriments.{energy-kcal_100g, proteins_100g, carbohydrates_100g, fat_100g}` plus name + brand. Throws `OFFError.notFound` for `status == 0`, `.networkError` for non-200, `.decodingFailed` for malformed JSON.
-- `detectUnit(...)` — checks `product_quantity_unit` / `serving_quantity_unit` / `quantity_unit` for ml-like (`ml`, `cl`, `l`) or g-like (`g`, `kg`, `mg`), falls back to `categories_tags` matching a liquid set. Returns "g" or "ml" string for the `FoodProduct.unit` cache.
-
-`OFFError` enum: `notFound`, `networkError`, `decodingFailed`.
-
-### `Keychain.swift`
-
-Thin wrapper over `SecItem*` for string-valued Keychain entries. Matches the pattern audit H21 introduced inline in `DevIdentityService`: `kSecClassGenericPassword`, `kSecAttrAccessibleAfterFirstUnlock`, `kSecAttrSynchronizable` so iCloud Keychain syncs the value across the user's devices.
-
-Static methods: `read(_ account:) -> String?`, `write(_ account:, value:) -> Bool`, `delete(_ account:)`, `has(_ account:) -> Bool`. `has` deliberately doesn't return the value — useful for UI gates that only need "is this configured" without re-reading sensitive data (Settings AI section uses this on the API key row).
-
-`service` field = `Bundle.main.bundleIdentifier` for every entry. `account` differentiates items: `index.dev.userId` for the dev identity UUID, `index.ai.anthropicAPIKey` for the AI key.
-
-`DevIdentityService` keeps its inline copy of the same calls — it predated the extraction and works as-is. New services route through this helper to avoid duplicating the `SecItem` boilerplate.
+Support types in the same file: `SwimStroke`, `SwimHRSample`, `SwimLength`, `SwimSet`, `SwimDetailData`.
 
 ### `ClaudeService.swift`
 
-Gateway to the optional AI meal-photo macro estimator. `@MainActor @Observable`. Two halves: money-safety scaffolding (Keychain key + monthly budget cap + `AIUsageRecord`-backed spend tracking) and the vision call itself.
+`@Observable @MainActor final class`. Provides the optional AI meal-photo macro estimator.
 
-Security model documented in the file header: the Anthropic API key is stored in iOS Keychain (`index.ai.anthropicAPIKey`, `kSecAttrAccessibleAfterFirstUnlock` + iCloud sync) entered once by the user. The key is NEVER compiled into the binary, NEVER committed to git, NEVER written to a doc. This is correct for a private TestFlight app; it is NOT hacker-proof — any key shipped to a device is extractable. A true zero-extraction setup would need a backend proxy, explicitly out of scope.
+Constants: `apiKeyAccount = "index.ai.anthropicAPIKey"` (Keychain account), `monthlyBudgetKey = "ai.monthlyBudgetUSD"` (UserDefaults key), `defaultMonthlyBudgetUSD = 2.0`, `visionModel = "claude-haiku-4-5-20251001"`, `messagesURL = https://api.anthropic.com/v1/messages`, `anthropicVersion = "2023-06-01"`. Pricing: `inputCostPerMTok = 1.00`, `outputCostPerMTok = 5.00`.
 
-Money-safety surface:
-- `hasAPIKey: Bool` — observable, drives the Settings "Set" / "Configured ✓" row.
-- `setAPIKey(_:) throws` — writes to Keychain, flips `hasAPIKey`. Throws `KeyError.empty` on empty input or `.keychainWriteFailed` on the (rare) `SecItemAdd` failure.
-- `clearAPIKey()` — deletes from Keychain.
-- `apiKey() -> String?` — internal read for the vision call; Settings never reads back.
-- `monthlyBudgetUSD: Double` — read/write via UserDefaults (`ai.monthlyBudgetUSD`). Default `$2.00`.
-- `monthToDateSpendUSD(in:) -> Double` — sums `AIUsageRecord.estimatedCostUSD` for rows whose `date` is in the current month (`Calendar.dateInterval(of: .month, for: .now)`).
-- `isWithinBudget(in:) -> Bool` — strict `<` comparison so a `$0` budget always blocks.
-- `recordUsage(inputTokens:outputTokens:in:) throws` — inserts an `AIUsageRecord` row, explicit `try context.save()`. Per audit H6/H12: losing usage rows would silently bust the cap.
-- `cost(inputTokens:outputTokens:) -> Double` — pure-static math, exposed for unit tests + previews.
+Observable state: `hasAPIKey` (mirrors Keychain).
 
-Cost constants (per million tokens, Haiku 4.5 — `claude-haiku-4-5-20251001`, verified May 2026): `inputCostPerMTok = 1.00`, `outputCostPerMTok = 5.00`. If pricing changes, these are the single edit point.
+Key methods:
 
-Vision call:
-- `estimateMacros(from:in:) async throws -> MacroEstimate` — pre-flight key gate (`hasAPIKey` else throw `.noAPIKey`), pre-flight budget gate (`isWithinBudget` else throw `.budgetExceeded`), downscale the image to ≤1024 px longest edge JPEG q=0.7 via `UIGraphicsImageRenderer` (scale = 1 so the output pixel count matches the requested size; default Retina would up-sample and waste tokens), POST to `https://api.anthropic.com/v1/messages` with model `claude-haiku-4-5-20251001`, `max_tokens: 512`, headers `x-api-key` / `anthropic-version: 2023-06-01` / `content-type: application/json`, message content is one image block (base64 JPEG, `media_type: image/jpeg`) + one text block with the prompt.
-- After the network call returns, decode the envelope (`AnthropicResponse` with `content: [{type, text}]` and `usage: {input_tokens, output_tokens}`), record usage IMMEDIATELY (`recordUsage(...)`) BEFORE the content parse so a parse failure still bills the row, then parse the content text — `stripCodeFences(...)` defends against ```json wrappers — into a `MacroEstimate`.
-- The model is prompted to return ONLY a JSON object of the shape `{isFood, name, kcal, protein, carbs, fat, confidence}`. `isFood: false` for non-food photos with all numeric fields zeroed; the camera UI surfaces a "doesn't look like food" inline message and stays open.
+- `setAPIKey(_:) throws` / `clearAPIKey()` / `apiKey() -> String?` — Keychain-backed key storage.
+- `monthlyBudgetUSD: Double` — `UserDefaults`-backed read/write property; falls back to `defaultMonthlyBudgetUSD` on first read.
+- `monthToDateSpendUSD(in:) -> Double` — sums `AIUsageRecord.estimatedCostUSD` for rows whose `date` falls in the current calendar month (`Calendar.dateInterval(of: .month, for: .now)`).
+- `isWithinBudget(in:) -> Bool` — strict `<` comparison so a $0 budget always blocks.
+- `recordUsage(inputTokens:outputTokens:in:) throws -> AIUsageRecord` — inserts an `AIUsageRecord`, calls `context.save()` and rethrows on failure.
+- `cost(inputTokens:outputTokens:) -> Double` — pure-static cost computation.
+- `estimateMacros(from:in:) async throws -> MacroEstimate` — pre-flight checks: throws `.demoModeActive` if `DemoMode.isEnabled`, then `.noAPIKey`, then `.budgetExceeded`. Downscales the image to ≤1024 px longest edge + JPEG (`q = 0.7`). POSTs to the Messages API with one image block + the `visionPrompt` text block. Decodes the envelope, then calls `recordUsage` BEFORE parsing the assistant content (so token cost is recorded even on parse failure). Strips optional ```json fences via `stripCodeFences`. Returns a `MacroEstimate` (`isFood`, `name`, `kcal`, `protein`, `carbs`, `fat`, `confidence`).
 
-Types:
-- `MacroEstimate` — `Decodable`, `Sendable`. Fields: `isFood: Bool`, `name: String`, `kcal/protein/carbs/fat: Int`, `confidence: String` ("low" / "medium" / "high"; "low" makes the result-sheet caption warning-tinted).
-- `ClaudeServiceError` — `LocalizedError`. Cases `noAPIKey`, `budgetExceeded`, `network(Error)`, `couldNotParse`, `notFood`, `demoModeActive`. Each maps to a clear user-facing message via `errorDescription`. **`demoModeActive` is thrown at the top of `estimateMacros` when `DemoMode.isEnabled` so demo mode is entirely offline + free — no Anthropic call, no `AIUsageRecord` write.**
+Error type: `ClaudeServiceError` (`LocalizedError`) cases: `noAPIKey`, `budgetExceeded`, `network(Error)`, `couldNotParse`, `notFood`, `demoModeActive`.
+
+### `MetricsEngine.swift`
+
+Pure-static `enum`. No state.
+
+Body math: `bmi(weightKg:heightCm:)`, `bmiCategory(_:)`, `bmr(weightKg:heightCm:age:sex:)` (Mifflin-St Jeor), `tdee(bmr:activityLevel:)`, `leanBodyMass(weightKg:heightCm:sex:)` (Boer), `idealWeightRange(heightCm:sex:)` (Devine ±10%). Unit conversions: `kgToLbs`, `lbsToKg`, `cmToFtIn`.
+
+`dailyTargets(profile:latestWeight:todaysWorkouts:last14DaysWeight:) -> DailyTargets` is the cross-module reconciliation. `caloriesBase = tdeeValue + profile.calorieAdjustmentKcal` (linear; no clamp). Workout kcal contribution uses Ainsworth 2011 MET values (cycling 7.0, running 9.0, swimming 8.0, squash 7.3, strength/other 5.0) capped at 1000/day, and is zeroed when `profile.eatBackWorkoutCalories` is false. The aggressive-loss buffer (`aggressiveLossBuffer(last14DaysWeight:)`) adds 200 kcal when the 14-day weekly weight-loss rate exceeds 1%/week. Protein bonuses follow per-type rules, capped at 0.6 g/kg workout bonus and 2.5 g/kg total. The return shape `DailyTargets` (`Sendable struct`) carries `calories`, `caloriesBase`, `calorieAdjustmentReason`, `protein`, `proteinBase`, `proteinAdjustmentReason`, `tdee`, `deficit`, `workoutCalories`, `trendCalories`, `workoutProteinAdded`.
+
+### `BrainService.swift`
+
+Pure-static `enum`. Each call returns `ModuleInsight?` (`id`, `module`, `message`). `bodyInsight(...)`, `fitnessInsight(...)`, `nutritionInsight(...)`. First-match-wins per module.
+
+### `ProfileService.swift`
+
+`@Observable @MainActor final class`. Holds the active `Profile` (`activeProfile`) and the staged orphan (`orphanProfileForMigration`). Methods receive a `ModelContext` per call (it does not retain one).
+
+Lifecycle: `refresh(in:)`, `acceptMigration(in:)`, `declineMigration(in:)`, `createFreshProfile(in:)`.
+
+Field updates (all `throws`): `updateName`, `updateAge`, `updateHeight`, `updateSex`, `updateGoal`, `updateCalorieAdjustment`, `setEatBackWorkoutCalories`, `setManualWeightLoggingEnabled`, `setManualFitnessLoggingEnabled`, `updateProteinTarget`, `updateTargetWeight`, `setModuleEnabled`. Notification toggles are async: `setNotifyOnNewWorkout`, `setNotifyOnNewWeight` request iOS permission before flipping ON.
+
+Destructive: `resetAllData(in:) throws` wipes WeightEntry / WorkoutSession / StrengthSession (cascades) / NutritionEntry / DailyHealthMetrics / FoodProduct rows, preserving Profile + UserExercise. `deleteAccount(in:) async throws` wipes everything and signs out. `signOut() async` clears identity state.
+
+### `NotificationService.swift`
+
+`@MainActor @Observable final class : NSObject, UNUserNotificationCenterDelegate, Sendable`. Singleton (`static let shared`). Posts `tabRouteNotificationName` on tap so `ContentView` can swap tabs.
+
+### `IdentityService.swift` / `DevIdentityService.swift` / `AppleSignInIdentityService.swift`
+
+`IdentityService` protocol: `currentUserId: String?`, `isAuthenticated: Bool`, `signIn() async throws -> String`, `signOut() async`. `AppDependencies.identity` is the single seam: currently `DevIdentityService()`. `DevIdentityService` stores the UUID in Keychain (`kSecAttrAccessibleAfterFirstUnlock` + `kSecAttrSynchronizable`); a one-shot UserDefaults → Keychain migration runs at `init`. `AppleSignInIdentityService` is a non-trapping stub.
+
+### `Keychain.swift`
+
+Static helpers over `SecItem*`: `read(_:) -> String?`, `write(_:value:) -> Bool`, `delete(_:)`, `has(_:) -> Bool`. Service field is `Bundle.main.bundleIdentifier`; entries are `kSecClassGenericPassword` with `kSecAttrAccessibleAfterFirstUnlock` + `kSecAttrSynchronizable`.
+
+### `SafeFormat.swift`
+
+Static formatters that return `"—"` for non-finite or out-of-threshold values: `decimal(_:fractionDigits:threshold:)`, `int(_:threshold:)`, `percent(_:threshold:)`.
+
+### `OpenFoodFactsService.swift`
+
+`struct`. `fetch(barcode:) async throws -> ScannedFood`. Uses `JSONSerialization` with type-tolerant `(value as? Double) ?? (value as? Int).map(Double.init) ?? 0` parsing. Unit detection chooses "g" or "ml" from `product_quantity_unit` / `serving_quantity_unit` / `quantity_unit` with a `categories_tags` fallback. `OFFError`: `notFound`, `networkError`, `decodingFailed`.
 
 ### `DemoMode.swift`
 
-Central seam for the demo-data feature. Three static surfaces:
-
-- `isEnabled` / `setEnabled(_:)` — UserDefaults flag (`demoModeEnabled`). Read once at launch by `IndexApp.sharedContainer` to pick the store URL.
-- `demoStoreURL()` — `Index-demo.store` in Application Support, parallel to the real `default.store`.
-- `deleteDemoStoreFiles()` — wipes the `.store` + `-shm` + `-wal` companions for the "Reset demo data" action.
-
-The flag's only consumer at launch is `IndexApp` — flipping the toggle in Settings writes the new value and calls `exit(0)`; the next launch reads the flag and builds the `ModelConfiguration` against the chosen URL. **Only one store is open per process.** Real and demo can never mix because the other file is never opened.
+`enum` namespace. `isEnabled: Bool` (UserDefaults key `demoModeEnabled`). `setEnabled(_:)`. `demoStoreFilename = "Index-demo.store"`. `demoStoreURL() -> URL?` resolves to Application Support. `deleteDemoStoreFiles()` removes the `.store`, `.store-shm`, and `.store-wal` companions.
 
 ### `DemoDataService.swift`
 
-Generates a believable rolling-year dataset into a SwiftData context on first launch into demo mode. Idempotent via `isSeeded(in:)` (Profile-count check). Seeded `SeededRNG` (xorshift64-star) so wipe-and-regenerate produces the same dataset — useful for screenshots + QA.
+`@MainActor enum`. Three public surfaces:
 
-What gets seeded:
-- 1 Profile (Alex Bauer — 32y male, 180cm, moderately active, cut to 76kg target).
-- 10 `UserExercise` rows from `ExerciseCatalog.starter`.
-- ~280 `WeightEntry` rows over 365 days (gentle downward trend + daily noise + plateaus + three multi-day gaps for "travel" / "illness" / "forgot scale"). ~40% carry composition (RENPHO source).
-- ~150 `WorkoutSession` rows, clustered by week-of-year (sine-wave training-block density). Mixed types via a per-weekday template bias. All `source = .healthkit` with a fake `hkWorkoutUUID` + realistic avg/max HR so the workout-detail HR chart fires.
-- ~25 `StrengthSession` rows with `ExercisePerformance` + `SetEntry` cascade; weights progress slowly across the year.
-- ~1200 `NutritionEntry` rows averaging 3.5/day (breakfast + lunch + dinner + ~50% snack). Labels drawn from a fixed pool so FREQUENT chips look real.
-- ~320 `DailyHealthMetrics` rows with HRV + VO2 + resting HR following a believable annual drift.
-
-**Never seeded**: `AIUsageRecord`. The AI cost ledger must reflect real spend only.
-
-Also exposes `lastNightSleepSeconds()` — a day-seeded value in the 6h 20m – 8h 10m band read directly by `BodyView` in demo mode so the "Time asleep" tile renders populated without seeding into HK.
+- `lastNightSleepSeconds() -> TimeInterval` — day-seeded value in roughly 6h 20m – 8h 10m. Read by `BodyView` when in demo mode.
+- `isSeeded(in:) -> Bool` — true when the context has at least one `Profile` row.
+- `seedFreshDataset(in:) throws` — inserts one `Profile`, 10 `UserExercise` rows from `ExerciseCatalog.starter`, ~280 `WeightEntry`, ~150 `WorkoutSession` (HK-shaped: `source = .healthkit` + fake `hkWorkoutUUID`), ~25 `StrengthSession` (with `ExercisePerformance` + `SetEntry` cascade), ~1200 `NutritionEntry`, ~320 `DailyHealthMetrics`. Uses an xorshift64-style seeded RNG (`SeededRNG`) so re-runs produce the same dataset. Does **not** generate `AIUsageRecord`.
 
 ### `DemoHRSeriesGenerator.swift`
 
-Procedural per-workout HR series for demo workouts. `series(for: WorkoutSession) -> [SwimHRSample]`. The series is **deterministic per `hkWorkoutUUID`** — same workout always renders the same chart across re-opens. Shape: warmup ramp (~12%) → noisy plateau around the workout's avgHeartRate with occasional spikes toward maxHeartRate → cooldown ramp (~10%). One sample per ~20s of workout duration. Used by `WorkoutDetailView.loadHRSeriesIfNeeded` when `DemoMode.isEnabled` short-circuits the HK fetch path.
+`enum`. `series(for: WorkoutSession) -> [SwimHRSample]`. Seeded by the session's `hkWorkoutUUID` (or by `date.timeIntervalSince1970` if no UUID). Returns one sample per ~20 seconds with a warmup → noisy plateau (peaks toward `maxHeartRate`) → cooldown shape. Returns `[]` if `hasHeartRate` is false. Called from `WorkoutDetailView` when `DemoMode.isEnabled`.
 
 ---
 
-## Theme (`Views/Theme/`)
+## 6. Views by module
 
-### `IndexPalette.swift`
+### Shared scaffolding (`Views/Theme/`)
 
-Single source of truth for every color. Hex strings live nowhere else.
+- `IndexPalette.swift` — `enum IndexPalette` with nested namespaces: `Brand`, `Surface` (`background`, `card`, `divider`), `Text` (`primary`, `secondary`, `tertiary`, `onAccent`), `Semantic` (`success`, `warning`, `error`), `Data` (`heartRate`, `distance`, `time`, `efficiency`, `energy`, `protein`, `carbs`, `fat`), `Module` (`body`, `fitness`, `nutrition`, `settings`), `Action` (`destructive`, `disabled`). A `Color.init(hex:)` extension also lives here.
+- `IndexTypography.swift` — declares `enum IndexFont` with `hero`, `heroUnit`, `heroCaption`, `tileLabel`, `tileValue`, `tileUnit`, `sectionCap`, `rowTitle`, `rowValue`, `rowSecondary`. `hero` (56 pt), `heroUnit` (22 pt), and `tileValue` (24 pt) use fixed point sizes; the others use semantic `Font.system(.style, weight:)` so they scale with Dynamic Type. Numerical helpers carry `.monospacedDigit()`.
+- `DemoBadge.swift` — small "DEMO" capsule rendered when `DemoMode.isEnabled`; collapses to nothing otherwise. Used inline next to each module's page title.
+- `IndexTabScaffold` (declared inside `ContentView.swift`) — wraps each tab's root in a `NavigationStack` and paints `IndexPalette.Surface.background` with `.ignoresSafeArea()`.
 
-Namespaces (each is a nested `enum` with `static let` colors):
-- `Brand` — `primary` (#1E3A8A French Blue), `secondary` (#FCB07E Sandy Coral).
-- `Surface` — `background` (#FAF8F5 alabaster page), `card` (#EBE9E9 warm gray), `divider` (#D6D3CE).
-- `Text` — `primary` (#1A1A1A), `secondary` (#6E6E73), `tertiary` (#AEAEB2), `onAccent` (#FFFFFF).
-- `Semantic` — `success` (#34C759), `warning` (#FF9500), `error` (#FF3B30).
-- `Data` — stable per-metric colors that do NOT change per module: `heartRate` (red), `distance` (blue), `time` (orange), `efficiency` (teal — SWOLF), `energy` (orange), `protein` (purple), `carbs` (yellow), `fat` (green).
-- `Module` — per-tab accents: `body` (French Blue), `fitness` (Sandy Coral), `nutrition` (Teal), `settings` (French Blue, same as Body).
-- `Action` — `destructive` (red), `disabled` (gray).
+### `Views/Body/`
 
-`Color(hex:)` extension lives in this file too.
+- `BodyView.swift` — main screen. `@Query` for `WeightEntry` (filtered `!deletedFromIndex`, sorted by `date` descending) and `DailyHealthMetrics` (sorted by `date` descending). `@State lastNightSleepSeconds: TimeInterval?`. Sections in `body`:
+  - `pageTitle` (with `DemoBadge`)
+  - `insightSection` (Brain pill via `BrainService.bodyInsight`)
+  - `heroWeight` (latest weight, gray delta vs. previous)
+  - `trendChart` (30-day Swift Charts: `AreaMark` with explicit `yStart` at `weightDomain(_:).lowerBound`; chart `.clipped()`; auto-strided x-axis)
+  - `metricsSection` — BMI, BMR, TDEE, Body fat, Lean mass, Time asleep. Body fat and Lean mass tiles carry `delta:` with `DeltaPlacement.inline`. Time asleep reads `lastNightSleepSeconds` (formatted as `Xh Ym`, "—" when nil).
+  - `vitalsSection` — HRV, VO2 max, Resting HR, all with `deltaPlacement: .belowValue`.
+  - `recentEntriesSection` — last 5 weights, tap → `WeightEntryDetailSheet`.
 
-Tab tint switching is driven by `ContentView.currentTabAccent` (computed from `selectedTab`) and applied via `.tint(currentTabAccent)` on `TabView`. Settings overrides X-dismiss buttons explicitly to `Text.secondary` so they don't inherit the tinted Button label color.
+  Tile delta logic (declared at file scope at the bottom): `enum GoodDirection { case up, down }` and `struct TileDelta { signedAmount, formattedAbs, unit, goodDirection; arrowSystemName, isGood }`. Per-metric helpers (`bodyFatDelta`, `leanMassDelta`, `hrvDelta`, `vo2Delta`, `rhrDelta`) walk the newest two rows where the has-flag is true and return nil when the rounded change is below display precision. Direction-of-good: body fat `.down`, lean mass `.up`, HRV `.up`, VO2 max `.up`, resting HR `.down`.
 
-### `IndexTypography.swift`
+  Sleep fetch lives in `loadLastNightSleep()` on `.task`: reads `DemoDataService.lastNightSleepSeconds()` when `DemoMode.isEnabled`, otherwise awaits `hkService.fetchLastNightSleep()`.
 
-Centralized type system. SF Pro across the board with `.monospacedDigit()` on every numerical helper for tabular alignment. Geist Mono was tried then reverted (its full-width `.` rendered "87 . 3" with floaty gaps; reverting to SF Pro + monospacedDigit kept tabular figures without the decimal artifact).
+- `LogWeightSheet.swift`, `WeightHistoryView.swift`, `WeightEntryDetailSheet.swift` — manual entry sheet, full chronological history, single-entry edit/delete.
 
-Token set (point sizes are the contract — no raw `.font(.system(size:))` allowed on numerical sites):
+### `Views/Fitness/`
 
-- `hero` — 56pt bold, monospacedDigit. Module hero numerals ("87.3", "2h 53m", "2215", "173").
-- `heroUnit` — 22pt regular. "kg" / "kcal" / "g" after a hero.
-- `heroCaption` — 15pt regular, monospacedDigit. "3 days ago", "/ 2137 kcal", "4 sessions · 1865 kcal burned".
-- `tileLabel` — 13pt medium. "BMI", "Carbs", "HRV", "Calories".
-- `tileValue` — 24pt semibold, monospacedDigit. Tile numbers.
-- `tileUnit` — 13pt regular. Unit suffix next to a tile value.
-- `sectionCap` — 12pt semibold. Section captions (callers add `.kerning(0.8)` and pass uppercase literals — no `.textCase` modifier so SwiftUI doesn't double-uppercase).
-- `rowTitle` — 17pt regular. List-row titles.
-- `rowValue` — 17pt regular, monospacedDigit. List-row values.
-- `rowSecondary` — 13pt regular, monospacedDigit. Row sub-line / time labels.
+- `FitnessMainView.swift` — main screen. `@Query` for `WorkoutSession` (filtered `!deletedFromIndex`, sorted by `date` descending) and `StrengthSession`. Sections: `pageTitle` (with `DemoBadge`), `backfillBanner` (visible while `hkService.isBackfilling`), `thisWeekSection` (hero duration like `2h 53m` + sub-line `N sessions · K kcal burned`), `recentSection` (VStack of buttons over `sessions`). Routes feed taps via `.navigationDestination(item:)` to `WorkoutDetailView` or `StrengthSessionDetailView`. Log toolbar button is gated on `profile.manualFitnessLoggingEnabled`.
+- `LogActivitySheet.swift`, `LogCyclingSheet.swift`, `LogOtherWorkoutSheet.swift` — manual logging entry points.
+- `WorkoutDetailView.swift` — detail screen for non-strength sessions. Renders `heroSection` (date + source badge + duration hero), `heartRateSection`, `statsGrid` (SwiftUI `Grid` walked in pairs; odd trailing cell takes `gridCellColumns(2)`), optional `autoSetsRow` (swimming), `routePlaceholder` (cycling), `notesSection`, `deleteButton`. `@State hrSeries: [SwimHRSample]?` is the unified chart source. `loadSwimDetailIfNeeded()` populates `swimDetail` (which mirrors its `hrSamples` into `hrSeries`); `loadHRSeriesIfNeeded()` covers non-swim HK workouts. When `DemoMode.isEnabled` both paths short-circuit to `DemoHRSeriesGenerator.series(for:)`.
+- `SwimAutoSetsSheet.swift` — per-set and per-length detail derived from `SwimDetailData`.
 
-The small tokens (`tileLabel` / `tileUnit` / `sectionCap` / `heroCaption` / `rowTitle` / `rowValue` / `rowSecondary`) use semantic `Font.system(.style, weight:)` so they scale with Dynamic Type. The fixed-size heroes (`hero` 56pt, `tileValue` 24pt, `heroUnit` 22pt) stay at fixed point sizes — SwiftUI's path to scaling-system-font at a specific point size requires `Font.custom` with a font name, and we don't ship one. The tile-clip-proofing pattern (`.lineLimit(1)` + `.minimumScaleFactor(0.6)` on the numeral, `.layoutPriority(1)` on the unit) compensates so tile content fits even at the largest text size.
+### `Views/Strength/`
 
-### `DemoBadge.swift`
+- `ActiveStrengthSessionView.swift`, `RestTimerOverlay.swift`, `StrengthLibraryView.swift`, `AddExerciseSheet.swift`, `ExercisePickerSheet.swift`, `ExerciseDetailView.swift`, `StrengthSessionDetailView.swift` — live logging surface (timer + quick-adjust chips + "Complete set"), the user's exercise library (`!hiddenFromLibrary`), the catalog picker, per-exercise progress view, and past-session detail.
 
-Tiny pill — uppercased monospaced "DEMO" on a coral capsule — rendered next to each module's `pageTitle` whenever `DemoMode.isEnabled`. Collapses to `EmptyView` when the flag is off so the call site can drop it unconditionally. Visible across Body / Fitness / Nutrition so demo data can never be mistaken for real data.
+### `Views/Nutrition/`
 
----
+- `NutritionMainView.swift` — main screen. `@Query` for all `NutritionEntry`, recent `WeightEntry` and `WorkoutSession`. `@Environment(ClaudeService.self)`. Composition: `pageTitle` (with `DemoBadge`), `heroRow` (Calories + Protein dual hero), `macroGrid` (Carbs + Fat tiles), `actionRow` (Camera + Enter manually), `frequentChipsSection` (top-N labels by last-30-day frequency), `todaysLogSection` (today's entries, with a "See all" `NavigationLink` to `FoodHistoryView`). `computedTargets` calls `MetricsEngine.dailyTargets(...)` once per body and threads the result through subsections. `ManualEntryPrefill` carries optional `label`, `kcal`, `protein`, `carbs`, `fat`, `mealType`, `aiConfidence` and drives the prefilled `LogMealManualSheet`. `handlePhotoCaptured` calls `claudeService.estimateMacros` and routes the result into the manual sheet or surfaces an `AIErrorAlert`.
+- `BarcodeScannerView.swift` — live camera screen with two paths from one preview. AVFoundation `AVCaptureMetadataOutput` (EAN-8/13, UPC-A/E, ITF-14, Code 128, throttled at `reportThrottle = 0.15s`) feeds a SwiftUI-side stability tracker `(candidateCode, candidateFirstSeenAt, lastDetectionAt, lastFiredCode)`. When the same code has been continuously detected for `stabilityWindow = 0.6s` the `onDetect` callback fires automatically; a detection gap exceeding `gapResetWindow = 0.8s` resets the candidate. Each code fires at most once per presentation. `AVCapturePhotoOutput` + a `CameraCaptureProxy` deliver shutter captures to `onPhotoCaptured`. Overlay also offers a `PhotosUI.PhotosPicker`.
+- `BarcodeResultSheet.swift` — OFF lookup with a `FoodProduct` cache (90-day freshness), quantity slider, macro display via `food.macros(forGrams:)`.
+- `LogMealManualSheet.swift` — manual entry with `FieldValidation` (kcal 0–5000 required; macros 0–500 g optional). Accepts `editing: NutritionEntry?` plus optional `prefilledLabel`, `prefilledKcal`, `prefilledProtein`, `prefilledCarbs`, `prefilledFat`, `prefilledMealType`, `aiPrefillHint`.
+- `FoodHistoryView.swift` — pushed from the Nutrition stack via the "See all" link. `@Query` all `NutritionEntry` sorted newest-first, grouped by `MealType` in declaration order (Breakfast → Lunch → Dinner → Snack; empty sections collapse). Tap calls `onRequestRelog(entry)` then `dismiss()`; the parent populates `manualEntryPrefill` so the new entry is dated today.
+- `MealDetailView.swift` — read view for a single entry with an edit callback.
 
-## Views (`Views/`)
+### `Views/Settings/`
 
-### Module main views
+- `SettingsView.swift` — sections: Profile, Goal (with eat-back toggle), Modules, Manual logging, Strength exercises (link to `StrengthLibraryView`), Apple Health (link to `HealthStatusSheet`), Notifications, AI estimation, Data (export stub + reset), Demo (toggle + reset demo data; calls `exit(0)` on confirm), Account (sign out + delete), About.
+- Per-field edit sheets: `NameEditSheet`, `AgeEditSheet`, `HeightEditSheet`, `SexEditSheet`, `DirectionEditSheet`, `CalorieAdjustmentEditSheet` (slider bounded `[-1000, +1000]` in 50-kcal steps), `ProteinTargetEditSheet`, `TargetWeightEditSheet`, `AIAPIKeyEditSheet` (`SecureField`; never reads the stored key back), `AIBudgetEditSheet` (slider $0–$50 in $0.50 steps), `HealthStatusSheet`.
 
-#### `Views/Body/BodyView.swift`
-Body module main screen. Composition:
-- `pageTitle` — colored "Body" heading at the top (French Blue) + `DemoBadge` (only shows in demo mode).
-- `insightSection` — Brain pill ("HRV down 12% — consider lighter training", etc.) when one fires.
-- `heroWeight` — latest weight in 56pt blue + "kg" suffix + relative date + delta-from-previous (gray, informational).
-- `trendChart` — 30-day weight trend (`Swift Charts`) with body-blue line + bounded `AreaMark` fill. `weightDomain(_:)` auto-ranges the Y-axis with `max(span * 0.15, 0.5)` padding so a real 87.3–87.5 kg series isn't collapsed against the top of the chart. `AreaMark` uses an explicit `yStart: .value("Floor", domain.lowerBound)` + `.clipped()` on the frame so the gradient never bleeds outside the chart bounds. Auto-strides x-axis ticks to ~4 across the visible range.
-- `metricsSection` — BMI / BMR / TDEE / Body fat / Lean mass / Time asleep grid. ("Ideal range" was replaced with "Time asleep" — the former was static + redundant with BMI; the latter reads last night's sleep from `HealthKitService.fetchLastNightSleep` and pairs with the vitals as a recovery signal.) **Delta indicators** on Body fat + Lean mass: green-or-red arrow + absolute change vs. the previous WeightEntry whose has-flag is set. BMI / BMR / TDEE / Time asleep show no delta (descriptive metrics — coloring them would lie).
-- `vitalsSection` — HRV / VO2 max / Resting HR grid (3-up). All three carry a delta vs. the previous `DailyHealthMetrics` row with the has-flag set. VITALS uses `DeltaPlacement.belowValue` (the three-across grid is too narrow for inline) — the third row is rendered unconditionally with a hidden placeholder when no delta exists so all three tiles align even when one has insufficient history.
-- `recentEntriesSection` — last 5 weights as a VStack-based card. Tap opens `WeightEntryDetailSheet`. Long-press → context-menu delete. Audit DQ4 swap: VStack replaces the previous `List` because List reserves a trailing scrollbar gutter that made the card end short on the right.
+### `Views/Onboarding/`
 
-Tile delta semantics — colors track direction-of-good, not raw direction:
-
-| Tile | Source | `GoodDirection` |
-|---|---|---|
-| Body fat | `WeightEntry.hasBodyFat` | `.down` |
-| Lean mass | `WeightEntry.hasLeanMass` | `.up` |
-| HRV | `DailyHealthMetrics.hasHRV` | `.up` |
-| VO2 max | `DailyHealthMetrics.hasVO2Max` | `.up` |
-| Resting HR | `DailyHealthMetrics.hasRestingHeartRate` | `.down` |
-
-Arrow follows the NUMBER's direction; color follows whether that movement is good for the user. Body fat dropping renders a down arrow in green; resting HR rising renders an up arrow in red. Sub-display-precision changes (`abs(rounded) < 0.1` for decimals or `< 1` for ints) return nil — no "↑ 0.0" pseudo-deltas.
-
-State: `@Query weights`, `@Query dailyMetrics`, `@State lastNightSleepSeconds`. Computes `bmiText`, `bodyFatText`, `leanMassText` once per body (audit H18). `loadLastNightSleep()` fires on `.task` — in demo mode reads `DemoDataService.lastNightSleepSeconds()`, else awaits `hkService.fetchLastNightSleep()`. Log button (top-right toolbar) is gated on `Profile.manualWeightLoggingEnabled` (hidden by default for users with a RENPHO scale).
-
-#### `Views/Fitness/FitnessMainView.swift`
-Fitness module main screen. Composition:
-- `pageTitle` — colored "Fitness" heading (Sandy Coral).
-- `backfillBanner` — visible while `hkService.isBackfilling`.
-- `thisWeekSection` — hero `2h 53m` total active time + sub-line `4 sessions · 1865 kcal burned`. Empty-state collapses to `0m` + "No sessions yet this week."
-- `recentSection` — chronological feed of all non-deleted `WorkoutSession`. VStack of `Button` rows (not NavigationLink — avoids the disclosure-indicator trailing gutter). Tap routes via state-driven `.navigationDestination(item: $selectedSession)`. Long-press → context-menu delete.
-
-State: `@Query sessions`, `@Query strengthSessions`. Log button (top-right) is gated on `Profile.manualFitnessLoggingEnabled` (default off — Apple Watch users get automatic imports).
-
-`handleActivityChoice(_:)` routes a `LogDestination` enum from the activity picker sheet to the appropriate destination (LogCyclingSheet, LogOtherWorkoutSheet variants, or fullScreenCover for `ActiveStrengthSessionView`).
-
-`detailDestination(for:)` routes feed taps: strength sessions go to `StrengthSessionDetailView`, every other type to `WorkoutDetailView`.
-
-#### `Views/Nutrition/NutritionMainView.swift`
-Nutrition module main screen. Composition:
-- `pageTitle` — colored "Nutrition" heading (Teal).
-- `heroRow` — Calories + Protein side-by-side (each 56pt teal numeral + `/ target unit` sub-line). Calories cell includes an optional `+kcal from workouts` caption when the eat-back toggle is on AND workouts > 0.
-- `macroGrid` — Carbs / Fat tiles.
-- `actionRow` — "Camera" + "Enter manually" buttons. Icons are explicit teal so they don't lose saturation through the tint cascade. The Camera button opens the live camera screen that handles both barcode lookup (free, **auto-fires on stable detection** — no chip, no tap) and AI meal-photo macro estimation (cost-gated through `ClaudeService.estimateMacros`).
-- `frequentChipsSection` — behavior-based chips, top 5 labels logged in the last 30 days. Hidden when fewer than 3 distinct items qualify. Chip tap pre-fills `LogMealManualSheet` with the most-recent macros for that label.
-- `todaysLogSection` — today's `NutritionEntry` rows. VStack-based, tap opens `MealDetailView`, long-press deletes (hard delete via `context.delete`). Header carries a "See all" `NavigationLink` to `FoodHistoryView`.
-- **`FoodHistoryView`** — pushed from the Nutrition stack via the "See all" link. Shows every `NutritionEntry` grouped by `MealType` (Breakfast → Lunch → Dinner → Snack, sections with zero entries omitted), newest-first within each. Tapping a row dismisses the screen and re-logs through `manualEntryPrefill` → `LogMealManualSheet` pre-filled with the original's name, macros, and meal type. Saving creates a NEW entry dated today; the original is untouched. Duplicates are intentional (this is the full log; FREQUENT is the deduplicated view).
-
-State: `@Query allEntries`, `@Query weights`, `@Query workouts`. `@Environment(ClaudeService.self)` for the AI flow. `computedTargets` computed once per body via `let targets = ...` and threaded through subsections (audit H18 — saves 4× MetricsEngine walks per render). Sheet sequencing uses pending-intent + `DispatchQueue.main.asyncAfter(deadline: .now() + 0.4)` because iOS won't present a sheet while the prior is dismissing.
-
-AI photo handler (`handlePhotoCaptured`): single entry point for shutter + gallery taps from the camera. Drives the camera's bindings (`aiEstimating`, `aiInlineMessage`) so the screen renders the loading state in place + non-fatal "not food" inline; queues `pendingAIEstimate` and dismisses the camera on success-with-food; surfaces an `AIErrorAlert` (noAPIKey / budgetExceeded / network / parse) with a manual-entry fallback button on hard-stop errors. `routeAfterScanner` handles three pending intents in priority order: barcode result → `ScannedBarcode` sheet, AI estimate → `LogMealManualSheet` pre-filled with name + macros + `aiConfidence` hint, manual fallback → blank `LogMealManualSheet`.
-
-### Body sub-views
-
-- **`LogWeightSheet.swift`** — manual weight entry with `FieldValidation` (weight 20–300 kg required + in range; body fat 0–60% optional; lean mass 20–200 kg optional). Save inserts locally and explicit-saves first (audit H4), then mirrors to HK async — on HK failure keeps the local entry and surfaces a non-blocking banner. The 2026-05-14 corruption incident motivated the bounded ranges.
-- **`WeightHistoryView.swift`** — full chronological list of `WeightEntry`. Tap → `WeightEntryDetailSheet`. Swipe-to-delete via `.swipeActions`. Renders source badge (RENPHO / HEALTH / MANUAL) + optional BF% / LM kg per row.
-- **`WeightEntryDetailSheet.swift`** — edit/delete a single weight entry. Same validation as LogWeightSheet. Draft state in `@State` so Cancel rolls back (SwiftData `@Bindable` would auto-commit). Delete is soft (`deletedFromIndex = true`) — HK is a peer; never delete from HK.
-
-### Fitness sub-views
-
-- **`LogActivitySheet.swift`** — picker fanout. 6 rows: Strength + "My exercises", Cycling, Running, Swimming, Squash, Other. `LogDestination` callback routes to the parent's correct destination.
-- **`LogCyclingSheet.swift`** — manual cycling log. Required duration + intensity 1–5; optional distance. Audit H14: bounded ranges (1–1440 min, 0–300 km).
-- **`LogOtherWorkoutSheet.swift`** — parameterized for running, swimming, squash, other. Sub-type picker (Hiking / Walking / Yoga / Other) only when `preset == .other`. Sub-type prefixes the notes field so the feed shows a distinction without a schema bump. Distance only shown for `.running` / `.swimming`.
-- **`WorkoutDetailView.swift`** — detail screen for non-strength sessions. Hero shows duration + date + "Apple Health" / "Manual" attribution (chip sits on the date line, not pressed against the duration numeral). Stats grid (SwiftUI `Grid`, walked in pairs — odd trailing cell takes `.gridCellColumns(2)` for full-width) auto-hides fields whose `has-Foo` is false (manual squash shows fewer cells than HK cycling). **HR chart renders for every workout type with HR data** — Squash / Cycling / Running / Other / Swimming. The Swimming-only swim-detail path stays for sets / lengths / SWOLF (`Auto Sets` sheet). Two HK fetches: `fetchSwimDetail(forWorkoutUUID:)` for swim enrichment (also mirrors its `hrSamples` into the unified `hrSeries` state so one HK round-trip serves both swim sets math and the chart), `fetchHRSeries(forWorkoutUUID:)` for every non-swim HK workout. Demo mode short-circuits both: `DemoHRSeriesGenerator.series(for:)` synthesizes a deterministic-per-UUID series so the chart renders for synthetic workouts too. Cycling shows a "Route view coming in a later release" placeholder. Delete soft-flags via `deletedFromIndex = true`.
-- **`SwimAutoSetsSheet.swift`** — per-set summary + per-length breakdown for HK-imported swim workouts. Sets are the primary surface (more visual weight); lengths are denser secondary view. Read-only — spec excludes granularity toggle or splits. 25m pool only.
-
-### Strength sub-views
-
-- **`ActiveStrengthSessionView.swift`** — live logging surface. Top bar with elapsed timer + End button. Current exercise card with weight + reps fields, quick-adjust chips (`-2.5 / -1.25 / +1.25 / +2.5` kg, `-1 / +1` reps), "Complete set" primary action. Bottom "Add exercise" switches mid-session. Audit H17: `@Query` bounded to 365 days via `init`-time predicate so the cascade chain doesn't pull every `SetEntry` ever logged. Audit H18: `thisSessionSets` cached once per body (1Hz timer drives frequent re-evals). `endSession()` either inserts a parallel `WorkoutSession(.strength)` + flips `inProgress = false`, or hard-deletes the empty session (prevents empty-session leaks on re-appear).
-- **`RestTimerOverlay.swift`** — translucent countdown overlay. 1Hz `Timer.publish`. Auto-dismiss at 0 with `UINotificationFeedbackGenerator.success`. Tap-to-dismiss early (no haptic).
-- **`StrengthLibraryView.swift`** — user's exercise library list (filtered on `!hiddenFromLibrary`). Tap → `ExerciseDetailView`. Swipe sets `hiddenFromLibrary = true` (audit DQ4 soft-hide). "+" toolbar opens `AddExerciseSheet`.
-- **`AddExerciseSheet.swift`** — picker over the 10-item starter catalog. Tap inserts a `UserExercise` keyed to the catalog id (or un-hides an existing hidden row — never duplicates). "Added" rows are disabled + opacified.
-- **`ExercisePickerSheet.swift`** — picker over current library for the mid-session exercise switcher in `ActiveStrengthSessionView`.
-- **`ExerciseDetailView.swift`** — per-exercise detail. Last session preview + progress chart (1M / 3M / 1Y, top-set weight per day). Audit H17: `@Query` bounded to 365 days. "Log new session" launches `ActiveStrengthSessionView` seeded with this exercise.
-- **`StrengthSessionDetailView.swift`** — past strength session detail. Hero duration + Exercises/Sets summary + per-performance set rows + delete (soft-delete the parallel WorkoutSession + hard-delete the StrengthSession + its cascade).
-
-### Nutrition sub-views
-
-- **`BarcodeScannerView.swift`** — live camera screen, despite the legacy filename. Meal capture is the default posture; barcode lookup runs silently in the background and auto-fires when stable. Full-frame camera feed, no aiming rectangle, no chip. SwiftUI wrapper around `ScannerViewController` (a `UIViewController` that conforms to both `AVCaptureMetadataOutputObjectsDelegate` for barcode detection and `AVCapturePhotoCaptureDelegate` for shutter captures). The controller attaches both an `AVCaptureMetadataOutput` (EAN-8/13, UPC-A/E, ITF-14, Code 128, throttled to 0.15s between fires of the same code so the SwiftUI parent's stability window has a steady ~6 Hz stream) and an `AVCapturePhotoOutput`. **Stability-window auto-fire**: SwiftUI parent tracks `(candidateCode, candidateFirstSeenAt, lastDetectionAt, lastFiredCode)`; when the same barcode value has been continuously detected for ≥ `stabilityWindow` (0.6s), `onDetect(code)` fires and routes to the OpenFoodFacts result sheet. A detection gap > `gapResetWindow` (0.8s) resets the candidate so a code seen earlier can't carry stale time forward. Each code fires at most once per camera presentation (`lastFiredCode` blocks); dismissing the result and reopening the camera resets via fresh `@State`. `CameraCaptureProxy` bridges the SwiftUI overlay's shutter tap into the controller's `capturePhoto()`. Overlay controls: X close top-left, gallery (`PhotosPicker` matching `.images`) bottom-left, white-ring shutter (78pt outer / 58pt fill) bottom-center, "Snap a meal for an AI estimate" caption above the controls. AI loading shows "Estimating…" on a black capsule; non-food results render an inline warning chip. Audit H22: `onSetupFailed` callback surfaces camera-unavailable reasons (no camera, permission denied, busy).
-- **`BarcodeResultSheet.swift`** — product lookup result for the barcode-chip flow. Cache-first (90-day freshness window in `FoodProduct`), OFF fallback otherwise. Quantity slider 10–800 step 5 with shortcut chips (`30 / 50 / 100 / 150 / 200` g or `100 / 200 / 250 / 330 / 500` ml). Macro display scales via `food.macros(forGrams:)`. Audit H15: explicit `do/catch` on the dedup fetch (previous `try?` swallowed errors and silently double-inserted FoodProduct rows). Save increments `useCount` only on save (not on cache upsert).
-- **`LogMealManualSheet.swift`** — manual meal entry. Label required (non-empty trimmed). Kcal required and 0–5000. Macros optional 0–500 g each. Pre-fillable via `prefilledLabel` / `prefilledKcal` / `prefilledProtein` / `prefilledCarbs` / `prefilledFat` so the barcode-fallback flow (OFF not-found), the frequent-foods chip flow, and the AI-estimate flow can hand off label + macros to the same sheet. `editing != nil` switches to update mode (entry's own values win over pre-fills). Optional `aiPrefillHint: AIPrefillHint?` parameter — when non-nil renders an "AI estimate — check the numbers" caption section at the top; "low" confidence flips the caption to warning-tinted "Double-check the numbers".
-- **`MealDetailView.swift`** — read view for a single `NutritionEntry`. Edit button delegates back to the parent via `onRequestEdit` callback (parent dismisses this sheet, then presents `LogMealManualSheet` pre-filled). Delete is hard (`context.delete`).
-
-### Onboarding
-
-- **`OnboardingView.swift`** — 8 steps:
-  1. Sign in — `IdentityService.signIn()`.
-  2. Welcome / module explainer.
-  3. Profile basics — name, age, height (100–250 cm validated), sex.
-  4. Activity level (sedentary → extra active).
-  5. Goal direction (lose / maintain / gain) + optional target weight (30–300 kg validated).
-  6. Module toggles (Body / Fitness / Nutrition).
-  7. Exercise picker (top-5 from the 10-item starter catalog, ≥1 required — audit DQ6). Only shown when Fitness is enabled; navigation skips it otherwise.
-  8. Apple Health connect — `hkService.requestAuthorization()`. Skip button bypasses; user can re-grant from Settings.
-
-`OnboardingDraft` accumulates state across steps. `complete()` calls back to `ContentView.completeOnboarding(draft:)` which writes the Profile + UserExercise rows transactionally.
-
-Audit H13: numeric validation ranges on height + target weight so a typed `0` doesn't propagate as garbage into MetricsEngine.
-
-Root `.tint(IndexPalette.Brand.primary)` so the Continue button + progress bar + selection rings render in French Blue (no module context yet).
-
-### Settings
-
-- **`SettingsView.swift`** — Phase 7 all-in-one panel. Sections (top to bottom): Profile, Goal (with the eat-back-workout-calories toggle), Modules, Manual logging, Strength exercises (link to library), Apple Health (status + sync toggles), Notifications, AI estimation (API key + monthly budget + month-to-date spend), Data (export stub + reset), Account (sign-out + delete-account), About (version + build date).
-
-  - Field edits route to single-field sheets (`activeSheet: SheetRoute?` enum), each surfacing failures via `onError` callback to a non-blocking banner.
-  - Module toggles call `profileService.setModuleEnabled` per change; `.body` is `alwaysOn = true` so it can't be turned off.
-  - HK sync toggles flip the UserDefaults flags AND arm/stop the matching HK observer in real time. `hkToggleTick` forces a re-render after a toggle so the UI reflects the new state.
-  - Notification toggles are async-throws — flipping ON requests iOS permission first; on denial surfaces a one-time "enable in iOS Settings" alert.
-  - Tint is `Module.settings` (French Blue, same as Body). X-dismiss button explicitly overrides to `Text.secondary` so it stays neutral.
-  - Section caption helper centralizes the uppercase + kerning + `sectionCap` font for every section.
-
-- **Edit sheets** (`NameEditSheet`, `AgeEditSheet`, `HeightEditSheet`, `SexEditSheet`, `DirectionEditSheet`, `CalorieAdjustmentEditSheet`, `ProteinTargetEditSheet`, `TargetWeightEditSheet`, `AIAPIKeyEditSheet`, `AIBudgetEditSheet`) — single-field sheets following the same pattern: `FieldValidation` numeric guards (height 100–250 cm, age 13–120, calorie adjustment −1000 to +1000 in 50-kcal steps, protein 50–300 g, target weight 30–300 kg, AI budget $0–$50 step $0.50), `ProfileService.update*` / `ClaudeService.set*` on save, `onError` callback for failure banner.
-  - `AIAPIKeyEditSheet` is the SecureField paste-in for the Anthropic key. Starts empty in both "Set" and "Configured" states — the stored key is never displayed back; the user re-pastes to change. Configured state shows a destructive "Remove key" button with a confirmation dialog.
-  - `AIBudgetEditSheet` is a Slider $0–$50 step $0.50. $0 explicitly disables the AI feature (strict `<` budget gate in `ClaudeService.isWithinBudget` always blocks). Hero readout in `IndexFont.hero` so the dollar amount reads as data.
-  - `CalorieAdjustmentEditSheet` has the signed slider (negative = deficit, positive = surplus) with hint text per direction.
-  - `TargetWeightEditSheet` has the `hasTargetWeight` toggle gating the numeric field — matches the onboarding pattern.
-
-- **`HealthStatusSheet.swift`** — read-only HK status (Connected / Not connected), Re-authorize affordance when not authorized, Health-app deep link via `x-apple-health://`.
+- `OnboardingView.swift` — eight-step flow ending in `completeOnboarding(draft:)` (in `ContentView`) which inserts the `Profile` plus the chosen `UserExercise` rows and explicit-saves.
 
 ---
 
-## Patterns in active use
+## 7. External integrations
 
-### Data integrity
+### HealthKit
 
-- **CloudKit shape on every model.** Every property has a default; every to-one relationship is optional; no `@Attribute(.unique)`. Re-verified during the audit.
-- **`has-Foo` boolean companion** for every nullable numeric (`hasKcal`, `hasMaxHeartRate`, `hasLeanMass`, ...). Never Swift-optional numerics; the Bool companion queries cleanly through SwiftData `#Predicate`.
-- **UUID-first HK dedup.** Primary by `hk*UUID` field, fallback by ±N-min date window. Workouts ±2 min; weights ±5 min. Audit H5 / baseline.
-- **`deletedFromIndex` soft-delete tombstones** on HK-mirrored models. Swipe sets it true. `@Query` filters on `!deletedFromIndex`. HK dedup predicates do NOT filter on the flag — that's what makes swipe-as-tombstone work against re-import. (Field is `// DEPRECATED:` on `NutritionEntry` per audit H3 + DQ2 — that model never mirrored to HK.)
-- **Soft-link by string id** for cross-model references that deliberately bypass cascade delete: `WorkoutSession.strengthSessionId` → `StrengthSession.id`, `ExercisePerformance.userExerciseId` → `UserExercise.id`. Read sites gracefully render "Unknown exercise" / "Strength session deleted" when the link is dangling.
-- **Soft-hide for catalog-keyed library items.** `UserExercise.hiddenFromLibrary` (audit DQ4). Library/picker `@Query` filters out hidden rows, but old session history's soft-link still resolves the name. Re-adding the same catalog id un-hides instead of inserting a duplicate.
-- **Explicit boolean over date-equality heuristic** for in-progress / completed state. `StrengthSession.inProgress` (audit H16) replaces the previous `endDate <= date` check.
+- Read types listed in section 5 (15 total, including `sleepAnalysis`).
+- Write type: `bodyMass` only.
+- Background delivery entitlement: `com.apple.developer.healthkit.background-delivery`.
+- Usage strings: `NSHealthShareUsageDescription` and `NSHealthUpdateUsageDescription` in the Info.plist.
 
-### Save discipline
+### Anthropic API
 
-- **Transactional save where it matters.** Onboarding completion + ProfileService migration accept/decline use explicit `try modelContext.save()` rather than relying on SwiftData autosave (audit H6 + H12). SwiftData autosave is "next runloop tick when dirty"; an app kill in that window loses the result.
-- **`try?` is for reads, not writes.** `try?` on a `FetchDescriptor` returning an empty array is fine. `try?` on `context.save()` or HK `store.save(_:)` is not. Use a real `do/catch` with a user-visible failure mode.
+- Endpoint: `https://api.anthropic.com/v1/messages`.
+- Model id: `claude-haiku-4-5-20251001`.
+- `anthropic-version` header: `2023-06-01`.
+- Key location: iOS Keychain under account `index.ai.anthropicAPIKey`. Read internally by `ClaudeService.apiKey()`. The Settings UI uses `Keychain.has` to gate the "Set" vs "Configured" row and never reads the key value back.
+- Cost tracking: one `AIUsageRecord` row per successful call; cost computed at insert time from token counts × per-million-token rates (`inputCostPerMTok = 1.00`, `outputCostPerMTok = 5.00`).
+- Budget cap: `monthlyBudgetUSD` (UserDefaults key `ai.monthlyBudgetUSD`, default $2.00). `isWithinBudget(in:)` uses strict `<` so $0 always blocks. `estimateMacros` throws `.budgetExceeded` before the network call when month-to-date spend has reached the cap. When `DemoMode.isEnabled` it throws `.demoModeActive` before any check.
 
-### View architecture
+### Open Food Facts
 
-- **`@Query` directly in views.** No ViewModels.
-- **Sheet draft pattern.** `@State` text fields buffer the *display* of a model's values; explicit `model.field = parsed` on Save commits. Cancel rolls back implicitly because nothing was mutated.
-- **`FieldValidation` value type** (in `LogWeightSheet.swift`) — three-state (`parsed` / `parsedInRange` / `error`) for any numeric form field. Reused by 7+ sheets after audit H13/H14. Comma-as-decimal locale handled.
-- **Hoist body-derived metrics** to a single body-scoped `let derived = makeDerived()` and thread through subsections. Avoids 4× duplicated MetricsEngine/Brain work across computed-property accessor calls. Audit H18.
-- **Bounded `@Query` via init-time predicate** for unbounded-growth tables. Construct `_query = Query(filter: #Predicate { $0.date > cutoff }, ...)` in the view's `init(...)` so the cutoff refreshes per presentation. Audit H17 — see `ActiveStrengthSessionView.init` and `ExerciseDetailView.init`.
-- **VStack-of-Buttons over List for cards** when the trailing scrollbar gutter would clip the card visually. Long-press `contextMenu` replaces swipe-to-delete in these places.
-
-### Service shape
-
-- **Pure-static services for math.** `MetricsEngine` and `BrainService` have no state, no fetching — callers pass `@Query` data in.
-- **Profile abstraction from day one.** No hard-coded "Yannis" anywhere. Every screen reads via `ProfileService.activeProfile`.
-- **Identity behind a protocol.** `IdentityService` swap-seam in `AppDependencies.identity` is the only line that changes when paid enrollment lands.
-- **Singleton for delegate-owning services.** `NotificationService.shared` because both `IndexApp`'s `@State` injection AND `HealthKitService`'s constructor dependency need the same `UNUserNotificationCenterDelegate` instance.
-- **No side-channel mutation of services from views.** Services receive their dependencies at construction in `IndexApp`. `HealthKitService` was the one historical violation (audit H10 fixed).
-
-### Defensive formatting
-
-- **`SafeFormat`** for any `Int(Double)` display path (kg, kcal, BMR, HRV ms). Returns `"—"` for non-finite or magnitude > threshold. Floor against the 2026-05-14 corruption incident.
-- **Centralized type system.** `IndexFont` tokens for every numerical site; `.font(.system(size:))` outside `IndexTypography.swift` is forbidden on data + section-cap sites.
-- **Centralized color system.** `IndexPalette` for every color; no hex literals outside the palette file (data-viz colors in `RingsWidget` etc. that were never promoted are documented in-place when present).
-
-### Error recovery
-
-- **Discriminated catch on `SwiftDataError.loadIssueModelContainer`** (audit H9). Schema mismatch / store corruption triggers a single-shot wipe + retry (audit DQ5). Other errors preserve the user's data.
-- **Non-trapping fallbacks.** `IndexApp.makeFallbackContainer` makes an in-memory ModelContainer if the persistent one is unrecoverable, so the app launches and ContentView can render the hard-error screen with a path forward. `AppleSignInIdentityService` stubs never `fatalError` (audit H7). One documented `fatalError` remains: `BarcodeScannerView.init?(coder:)` boilerplate (unreachable in SwiftUI presentation).
-
-### Settings invariants
-
-- **iOS retains per-type HK authorization** even after the app stops requesting it. Removing a read type means Index simply stops querying — the user's prior grant stays inert in iOS Settings → Health → Index. No programmatic revocation needed.
-- **Notification permission gates are async.** Toggle-ON flow requests permission first; on denial the flag stays off and the caller surfaces a one-time alert.
-- **HK observer toggle does NOT delete previously-imported rows** (audit DQ10). It only stops new delivery.
-
----
-
-## Build + dev rules
-
-See `CLAUDE.md` for the working agreement:
-
-- Build commands (`DEVELOPER_DIR=... xcodebuild -target Index -sdk iphonesimulator26.5 ...`).
-- Schema evolution rules (additive only; no deletes, renames, type changes; `// SCHEMA:` markers on every schema-change commit).
-- Audit-derived defensive coding rules (no silent error swallowing; insert + save is one operation; no `fatalError` reachable in production except documented exceptions; HK observers must be stoppable).
-- Code style (no emojis; default to no comments; `// DECISION:` for judgment calls; `// FUTURE:` for revisit-later markers).
-- What's explicitly NOT in v1 (TSS / FTP, sleep tab, finance, workout templates, custom exercise creation, photo-to-macros, imperial units, dashboard prose).
-
----
-
-## v0 lessons baked into v2
-
-1. **Active-logging is a different design problem from reading.** v0's editorial design worked for calm browsing and was wrong for fast gym logging. v2's active screens get bigger inputs, more aggressive primary buttons, less whitespace.
-2. **LOG is a primary action** when manual logging is enabled. It belongs visible on each module main (and gated on the user's preference for that module).
-3. **Apple Health is read-mostly, write-rarely.** Index writes only `bodyMass`. HK is the source of truth.
-4. **Migrations are cheap if you plan for them.** Lightweight-only is the only acceptable kind. The original V1/V2/V3 + `IndexMigrationPlan` design proved this isn't free.
-5. **Type-tolerant parsing wins** when the third-party data shape is unstable. The v0 OFF parser uses `JSONSerialization` + `(value as? Double) ?? (value as? Int).map(Double.init) ?? 0`. The v2 rewrite using strict Codable structs returned zeros for half the products tested.
-6. **Defensive formatting at every display boundary.** `SafeFormat` returns `"—"` for non-finite / out-of-range. The 2026-05-14 incident (a `WeightEntry.weightKg` of ~5×10³⁸ trapping `Int(kg)` in BodyView's formatter) is the proof point.
-7. **Apple Health is a peer, not master, on the write path.** Audit H4 + DQ3: when Index writes `bodyMass` and HK rejects, the local `WeightEntry` stays and a non-blocking banner surfaces the failure. Rolling back the local insert would punish the user for HK's auth-state surprises.
-8. **Identity-bearing values go in Keychain, not UserDefaults.** UserDefaults is for operational state (sync anchors, toggles, one-shot flags). DevIdentityService's `kSecAttrSynchronizable` flag preserves the userId across uninstall + reinstall when iCloud Keychain is on.
-9. **Speculative widgets get cut, not iterated forever.** The Fitness Today widgets (rings → arrows → inset overflow → horizontal bars → delete) burned five iterations in one session before the user decided removing them was the right call. Ship the minimum; revisit when real usage surfaces the need.
+- Endpoint: `https://world.openfoodfacts.org/api/v2/product/{barcode}.json`.
+- Local cache: `FoodProduct` rows keyed on `barcode`; the result-sheet writes new rows on save with a 90-day freshness window.
