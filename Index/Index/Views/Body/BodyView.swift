@@ -47,12 +47,16 @@ struct BodyView: View {
         // keeps the system bar slim (just the toolbar items) so the
         // colored "Body" hero text is the first thing on screen.
         .navigationBarTitleDisplayMode(.inline)
-        // Section 2 layout-hardening: make the nav bar background
-        // visible so scrolling page content stops at the safe-area
-        // boundary instead of bleeding into the status-bar region
-        // through a transparent inline nav bar. Without this, the
-        // colored "Body" hero slid under the time/battery on scroll.
-        .toolbarBackground(.visible, for: .navigationBar)
+        // Top safe-area inset (regression fix on top of the layout
+        // commit). Passing `.visible` was insufficient under iOS 26
+        // Liquid Glass — the inline nav bar still rendered a
+        // translucent material, letting scrolling page content show
+        // through the status-bar region. An EXPLICIT Color
+        // (`IndexPalette.Surface.background`) makes the nav bar
+        // background fully opaque and matches the page surface, so
+        // scroll content stops at the safe-area edge.
+        .toolbarBackground(IndexPalette.Surface.background, for: .navigationBar)
+        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 14) {
@@ -184,9 +188,21 @@ struct BodyView: View {
             let domain = weightDomain(series)
             Chart {
                 ForEach(series, id: \.persistentModelID) { entry in
+                    // Explicit yStart at the visible-domain floor —
+                    // without it, AreaMark baselines at y=0 (Swift
+                    // Charts' default for a numeric axis). Combined
+                    // with chartYScale(domain: lo...hi) where lo is
+                    // ~86 kg, the area used to draw from y=0 up to
+                    // the data point and then be clipped imperfectly
+                    // by the chart frame — the gradient bled outside
+                    // the chart bounds and tinted the entire screen
+                    // (COMPOSITION / VITALS / RECENT ENTRIES). Binding
+                    // the area to the visible domain's lower bound
+                    // contains the fill where it should be.
                     AreaMark(
                         x: .value("Date", entry.date),
-                        y: .value("Weight", entry.weightKg)
+                        yStart: .value("Floor", domain.lowerBound),
+                        yEnd: .value("Weight", entry.weightKg)
                     )
                     .foregroundStyle(LinearGradient(
                         colors: [IndexPalette.Module.body.opacity(0.25), IndexPalette.Module.body.opacity(0.0)],
@@ -216,6 +232,11 @@ struct BodyView: View {
                 }
             }
             .frame(height: 180)
+            // Belt-and-suspenders against the previous gradient-bleed
+            // regression — even with the bounded AreaMark above, clip
+            // anything that might overdraw the chart frame so nothing
+            // ever escapes the chart's rectangle again.
+            .clipped()
         } else {
             Text("Log more weights to see your trend.")
                 .font(.footnote)

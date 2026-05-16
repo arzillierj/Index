@@ -122,10 +122,11 @@ struct NutritionMainView: View {
         // the system nav-bar collapses to inline (toolbar buttons
         // only) so the colored "Nutrition" hero leads the screen.
         .navigationBarTitleDisplayMode(.inline)
-        // Section 2 layout-hardening — see BodyView. Visible nav-bar
-        // background stops scrolling content at the safe-area edge
-        // instead of letting it slide under the status bar.
-        .toolbarBackground(.visible, for: .navigationBar)
+        // Top safe-area inset — explicit surface color (not `.visible`)
+        // so iOS 26 Liquid Glass doesn't keep the bar translucent.
+        // See BodyView for the regression detail.
+        .toolbarBackground(IndexPalette.Surface.background, for: .navigationBar)
+        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         // DECISION: No toolbar "Log" button. Phase 6 ships with two
         // first-class action buttons on the main screen itself (Scan
         // barcode / Enter manually) — duplicating either as a toolbar

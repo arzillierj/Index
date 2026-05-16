@@ -56,6 +56,12 @@ struct WorkoutDetailView: View {
         }
         .navigationTitle(session.type.label)
         .navigationBarTitleDisplayMode(.inline)
+        // Top safe-area inset (matches the main-tab views) — explicit
+        // surface color so iOS 26 Liquid Glass doesn't keep the bar
+        // translucent. Without this, the duration hero ("2h 53m") slid
+        // under the status bar on scroll. See BodyView for detail.
+        .toolbarBackground(IndexPalette.Surface.background, for: .navigationBar)
+        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         .confirmationDialog(
             "Delete this session?",
             isPresented: $showDeleteConfirm,

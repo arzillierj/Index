@@ -30,6 +30,11 @@ struct StrengthSessionDetailView: View {
         }
         .navigationTitle("Strength")
         .navigationBarTitleDisplayMode(.inline)
+        // Top safe-area inset — see BodyView / WorkoutDetailView for
+        // the regression detail. Explicit surface color so iOS 26
+        // Liquid Glass doesn't keep the bar translucent.
+        .toolbarBackground(IndexPalette.Surface.background, for: .navigationBar)
+        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         .confirmationDialog(
             "Delete this session?",
             isPresented: $showDeleteConfirm,
