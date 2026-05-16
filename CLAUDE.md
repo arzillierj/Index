@@ -33,15 +33,15 @@ Index/
 │       ├── Index.entitlements                      — HealthKit + background delivery
 │       ├── Assets.xcassets/
 │       ├── Models/                                 — 11 @Model classes + IndexSchema list (AIUsageRecord, Profile, WeightEntry, WorkoutSession, StrengthSession, ExercisePerformance, SetEntry, UserExercise, DailyHealthMetrics, NutritionEntry, FoodProduct)
-│       ├── Services/                               — HK bridge, Profile, Identity (Dev / AppleSignIn-stub), Brain, Metrics, Notifications, OFF, Keychain, Claude (AI macro estimator), SafeFormat
+│       ├── Services/                               — HK bridge, Profile, Identity (Dev / AppleSignIn-stub), Brain, Metrics, Notifications, OFF, Keychain, Claude (AI macro estimator), SafeFormat, DemoMode, DemoDataService, DemoHRSeriesGenerator
 │       └── Views/
 │           ├── Body/                               — BodyView + log / detail / history sheets
 │           ├── Fitness/                            — FitnessMainView + per-activity log sheets + WorkoutDetailView + SwimAutoSets
 │           ├── Strength/                           — Active session, library, picker, detail, RestTimer
-│           ├── Nutrition/                          — NutritionMainView + camera (barcode + AI) + result sheet + manual + detail
-│           ├── Settings/                           — SettingsView + 10 edit sheets + HealthStatusSheet
+│           ├── Nutrition/                          — NutritionMainView + camera (barcode + AI) + result sheet + manual + detail + FoodHistoryView
+│           ├── Settings/                           — SettingsView + 11 edit sheets + HealthStatusSheet
 │           ├── Onboarding/                         — 8-step OnboardingView
-│           └── Theme/                              — IndexPalette (colors) + IndexTypography (SF Pro tokens)
+│           └── Theme/                              — IndexPalette (colors) + IndexTypography (SF Pro tokens) + DemoBadge
 └── .git/
 ```
 
@@ -53,7 +53,7 @@ Xcode is configured with `PBXFileSystemSynchronizedRootGroup` — new `.swift` f
 |---|---|---|
 | HealthKit | ✅ entitlement + usage strings present | full read of 15 types (14 quantity + `sleepAnalysis` category) + `bodyMass` write per the v0 pattern |
 | HealthKit background delivery | ✅ entitlement present | `com.apple.developer.healthkit.background-delivery` |
-| Camera (barcode + meal photo) | ✅ wired | `INFOPLIST_KEY_NSCameraUsageDescription` describes both purposes; AVFoundation scanner ships EAN-8/13, UPC-A/E, ITF-14, Code 128; `AVCapturePhotoOutput` ships meal photos to `ClaudeService.estimateMacros` |
+| Camera (barcode + meal photo) | ✅ wired | `INFOPLIST_KEY_NSCameraUsageDescription` describes both purposes; AVFoundation scanner ships EAN-8/13, UPC-A/E, ITF-14, Code 128 with auto-fire on 0.6s stable detection; `AVCapturePhotoOutput` ships meal photos to `ClaudeService.estimateMacros` |
 | Photo Library (meal photo pick) | ✅ wired | `INFOPLIST_KEY_NSPhotoLibraryUsageDescription` set; `PhotosUI.PhotosPicker` in the camera overlay |
 | Local notifications | ✅ wired | `UNUserNotificationCenter` via `NotificationService.shared`; fires when HK observer inserts a genuinely-new workout or weigh-in (Profile-flag gated, iOS-permission gated, opt-in per type in Settings) |
 | AI macro estimator | ✅ wired | `ClaudeService` posts to `api.anthropic.com/v1/messages` (Haiku 4.5, `claude-haiku-4-5-20251001`); key in Keychain only; monthly cost cap via `AIUsageRecord` |

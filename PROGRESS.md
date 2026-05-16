@@ -178,22 +178,23 @@ For the product overview see `CONTEXT.md`. For the working agreement see `CLAUDE
 
 ---
 
-## Phase 7 — Settings (next up)
+## Phase 7 — Settings (shipped)
 
-Planned scope, derived from audit-surfaced gaps + the active spec:
+Phase 7 closed before the post-Phase-7 follow-ups above. What landed:
 
-- Workout import on/off toggle (currently UserDefaults-defaulted to ON, no UI). Toggle-off calls the new HK observer-stop API.
-- Module enable/disable toggles (currently set during onboarding only).
-- Profile editor (name, age, height, sex, activity, goal — onboarding-only today).
-- Calorie adjustment + protein target editor (currently default 0 / 150).
-- Re-grant Apple Health authorization.
+- Workout import on/off toggle (HK observer-stop API on `HealthKitService` — M8 / DQ10).
+- Module enable/disable toggles.
+- Profile editor (name, age, height, sex, activity, goal).
+- Signed calorie adjustment slider (deficit/surplus, −1000…+1000 in 50-kcal steps) + protein target editor (DQ7).
+- Eat-back-workout-calories toggle.
+- Manual logging toggles (hide the Log button when off).
+- Re-grant Apple Health authorization (`HealthStatusSheet`).
+- Notifications section — workout + weight, with async iOS-permission gating.
+- AI estimation section — Anthropic key (Keychain) + monthly budget slider + month-to-date spend readout (red when over budget).
 - "Reset all data" affordance — wipes WeightEntry / WorkoutSession / StrengthSession / NutritionEntry / DailyHealthMetrics / FoodProduct rows; preserves Profile + UserExercise library.
-- Sign out / delete account (will need real bodies once SIWA enrollment lands).
-- About row (version, build date, "Made with care in Switzerland" footer).
-
-Audit-derived items that ship **with** Phase 7:
-- HK observer-stop API on `HealthKitService` (M8 / DQ10).
-- Phase 7 settings expose the existing `Profile.calorieAdjustmentKcal` and `proteinTargetG` editors (DQ7).
+- Sign out / delete account (Apple-Sign-In bodies fill in post enrollment).
+- Demo section — toggle + confirmation + clean `exit(0)` for the physically-separate demo store.
+- About row (version + build date + Swiss footer).
 
 ---
 
@@ -230,13 +231,13 @@ Low-priority cosmetic items (icon-only button accessibility labels, fixed-size h
 
 From the v0 carryover + audit notes:
 
-- **Photo-to-macros (revived)** — re-add `Services/ClaudeService.swift` + `Models/PhotoEstimateLog.swift` as additive changes when the feature lands. UserDefaults → Keychain for the API key (audit precedent: H21).
 - **Cycling route view** — `WorkoutDetailView` cycling section has a placeholder "coming in a later release" tile.
-- **HR series + Tanaka zone breakdown on WorkoutDetailView** — v0 pattern was lazy-fetch from HK; v2 design is to persist with the WorkoutSession (schema bump).
+- **Tanaka HR-zone breakdown** on `WorkoutDetailView` — the chart is live for every workout type now (via `fetchHRSeries`); the per-zone summary is the next step.
 - **Imperial display units** — `MetricsEngine.kgToLbs` etc. exist but no view branches on `Profile.units`.
-- **Swift 5 → Swift 6 build mode bump** (DQ9) — defer until after Phase 7.
+- **Swift 5 → Swift 6 build mode bump** (DQ9) — defer.
 - **Multi-orphan profile picker** in Settings (today only the count==1 case auto-stages a migration prompt).
 - **Sign in with Apple** swap (`AppleSignInIdentityService` non-trapping stubs already in place per H7) — fill the four method bodies post paid Developer Program enrollment, flip `AppDependencies.identity`.
 - **CloudKit private database** — single `ModelConfiguration` change (add `cloudKitDatabase: .private(...)`) post enrollment.
 - **Custom launch screen + app icon design pass** — current icon shipped (`I.` wordmark with green accent dot, commit `c846d97`); custom launch screen is auto-generated.
-- **Sleep tile** on Body (cut from top-level tab; tile is open).
+
+Shipped from prior backlog: **AI photo-to-macros** (revived via the AI macro estimator), **HR series on every workout type** (live fetch via `fetchHRSeries`), **Sleep tile** on Body ("Time asleep" replaced the static Ideal range tile).
