@@ -100,7 +100,29 @@ struct ContentView: View {
             // HK side-channel removed (audit H10) — HealthKitService
             // now holds the ModelContainer it was constructed with.
 
-            if profileService.activeProfile != nil {
+            // Demo-mode seeding. The active store is already the
+            // demo store at this point (ModelContainer was built
+            // against `Index-demo.store` in IndexApp because the
+            // flag was on at launch). Seed only when the demo
+            // store has no Profile yet — every subsequent launch
+            // reuses the already-generated dataset. After seed,
+            // ProfileService.refresh re-reads so ContentView
+            // routes directly into the tabs instead of
+            // OnboardingView.
+            if DemoMode.isEnabled, !DemoDataService.isSeeded(in: modelContext) {
+                do {
+                    try DemoDataService.seedFreshDataset(in: modelContext)
+                    profileService.refresh(in: modelContext)
+                } catch {
+                    print("[ContentView] demo seed failed: \(error)")
+                }
+            }
+
+            // HK bootstrap is skipped in demo mode — the demo
+            // store is intentionally offline, and pulling real
+            // weights/workouts in would mix real data with the
+            // synthetic year.
+            if profileService.activeProfile != nil, !DemoMode.isEnabled {
                 await hkService.bootstrapIfAuthorized()
             }
         }

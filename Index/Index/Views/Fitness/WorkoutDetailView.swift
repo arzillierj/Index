@@ -127,6 +127,16 @@ struct WorkoutDetailView: View {
 
     private func loadSwimDetailIfNeeded() async {
         guard canFetchSwimDetail, swimDetail == nil, !isLoadingSwim else { return }
+        // Demo mode: HK has no record of these synthetic workouts.
+        // Generate a procedural HR series for the chart and skip
+        // the swim-sets/SWOLF fetch (auto-sets sheet won't appear,
+        // which is fine — the chart is the showcase).
+        if DemoMode.isEnabled {
+            if session.hasHeartRate, hrSeries == nil {
+                hrSeries = DemoHRSeriesGenerator.series(for: session)
+            }
+            return
+        }
         guard let uuid = session.hkWorkoutUUID, !uuid.isEmpty else { return }
         isLoadingSwim = true
         let detail = await hkService.fetchSwimDetail(forWorkoutUUID: uuid)
@@ -143,6 +153,12 @@ struct WorkoutDetailView: View {
 
     private func loadHRSeriesIfNeeded() async {
         guard canFetchGenericHR, hrSeries == nil, !isLoadingHR else { return }
+        // Demo mode: skip the HK round trip (would return empty
+        // for synthetic UUIDs) and generate procedurally.
+        if DemoMode.isEnabled {
+            hrSeries = DemoHRSeriesGenerator.series(for: session)
+            return
+        }
         guard let uuid = session.hkWorkoutUUID, !uuid.isEmpty else { return }
         isLoadingHR = true
         hrSeries = await hkService.fetchHRSeries(forWorkoutUUID: uuid)

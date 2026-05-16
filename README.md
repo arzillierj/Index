@@ -26,6 +26,7 @@ Phases 1–7 complete + post-Phase-7 features:
 - **Audit Phase 5** complete — 24 H-tier fixes + DQ-derived schema bumps across 5 rounds; build clean at every round close.
 - **Centralized theme** — `IndexPalette` for colors, `IndexFont` for SF Pro typography with `.monospacedDigit()` for tabular alignment.
 - **Per-module accent tinting** — Body blue, Fitness coral, Nutrition teal; tab tint switches with the active tab.
+- **Demo data mode** — Settings toggle that switches Index to a physically separate SwiftData store (`Index-demo.store`) pre-populated with a believable rolling year of data. Real and demo stores can never mix — only one is opened per launch. AI estimates are off and `AIUsageRecord` is untouched in demo, so the cost ledger stays honest.
 
 Not yet shipped: CloudKit private database sync (model shape is ready; flipping `cloudKitDatabase:` is a one-line edit when Developer Program enrollment lands), real Sign in with Apple (`AppleSignInIdentityService` exists as non-trapping stubs), imperial display units (helpers exist; no view branches on `Profile.units`), HR-series persistence on import (the series is fetched **live** from HealthKit when a workout-detail screen opens — see `HealthKitService.fetchHRSeries(forWorkoutUUID:)` — so the chart renders for every workout type with HR data; persistence would only be needed if we wanted the chart available offline or without HK), custom launch screen + icon.
 

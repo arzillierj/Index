@@ -66,6 +66,7 @@ struct NutritionMainView: View {
         case budgetExceeded(spend: Double, budget: Double)
         case network(String)
         case parse
+        case demoMode
 
         var id: String {
             switch self {
@@ -73,6 +74,7 @@ struct NutritionMainView: View {
             case .budgetExceeded:  "budgetExceeded"
             case .network:         "network"
             case .parse:           "parse"
+            case .demoMode:        "demoMode"
             }
         }
     }
@@ -232,6 +234,13 @@ struct NutritionMainView: View {
                 primaryButton: .default(Text("Enter manually"), action: requestManualFallback),
                 secondaryButton: .cancel(Text("Try again"))
             )
+        case .demoMode:
+            return Alert(
+                title: Text("AI estimates off in demo mode"),
+                message: Text("Demo mode runs entirely offline. Turn demo mode off in Settings, or enter this meal manually."),
+                primaryButton: .default(Text("Enter manually"), action: requestManualFallback),
+                secondaryButton: .cancel(Text("Close"))
+            )
         }
     }
 
@@ -282,6 +291,8 @@ struct NutritionMainView: View {
                 aiErrorAlert = .parse
             } catch let ClaudeServiceError.network(underlying) {
                 aiErrorAlert = .network(underlying.localizedDescription)
+            } catch ClaudeServiceError.demoModeActive {
+                aiErrorAlert = .demoMode
             } catch {
                 aiErrorAlert = .parse
             }
@@ -291,12 +302,15 @@ struct NutritionMainView: View {
     // MARK: - Page title
 
     private var pageTitle: some View {
-        Text("Nutrition")
-            .font(.largeTitle.weight(.bold))
-            .foregroundStyle(IndexPalette.Module.nutrition)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Breathing room above the cap-height — see BodyView.
-            .padding(.top, 6)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Nutrition")
+                .font(.largeTitle.weight(.bold))
+                .foregroundStyle(IndexPalette.Module.nutrition)
+            DemoBadge()
+            Spacer(minLength: 0)
+        }
+        // Breathing room above the cap-height — see BodyView.
+        .padding(.top, 6)
     }
 
     // MARK: - Action row

@@ -40,6 +40,14 @@ struct SettingsView: View {
     @State private var showDeleteAccountConfirm = false
     @State private var showNotificationDeniedAlert = false
 
+    // Demo-mode toggle — confirmation alert + clean exit. Local
+    // mirror of the global flag so the Toggle binding can show a
+    // confirmation BEFORE the value is persisted; on cancel we
+    // revert the mirror without ever touching DemoMode.setEnabled.
+    @State private var demoToggleMirror: Bool = DemoMode.isEnabled
+    @State private var pendingDemoToggleValue: Bool? = nil
+    @State private var showDemoResetConfirm = false
+
     enum SheetRoute: String, Identifiable {
         case name, age, height, sex
         case direction, calorieAdjustment, proteinTarget, targetWeight
@@ -70,6 +78,7 @@ struct SettingsView: View {
                         notificationsSection
                         aiSection
                         dataSection
+                        demoSection
                         accountSection
                     } else {
                         // Defensive: shouldn't reach Settings without an
@@ -655,6 +664,113 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will delete all logged weights, workouts, meals, and exercise sessions. Your profile and exercise library will remain. This cannot be undone.")
+        }
+    }
+
+    // MARK: - Demo
+    //
+    // Showcase mode. Flipping the toggle requires an app
+    // restart because the ModelContainer is bound to a physical
+    // store URL at launch — `IndexApp.sharedContainer` reads
+    // `DemoMode.isEnabled` to pick between `default.store` (real)
+    // and `Index-demo.store` (synthetic year). iOS doesn't allow
+    // self-relaunch, so we call `exit(0)` after writing the new
+    // flag and the alert wording sets the expectation. Cancel
+    // reverts the mirror state without touching the persisted
+    // flag.
+
+    private var demoSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionCaption("Demo")
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Demo data")
+                        .font(IndexFont.rowTitle)
+                        .foregroundStyle(IndexPalette.Text.primary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { demoToggleMirror },
+                        set: requestDemoToggle
+                    ))
+                    .labelsHidden()
+                    .tint(IndexPalette.Module.fitness)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                if DemoMode.isEnabled {
+                    divider
+                    destructiveRow(label: "Reset demo data") {
+                        showDemoResetConfirm = true
+                    }
+                }
+            }
+            .background(IndexPalette.Surface.card)
+            .clipShape(.rect(cornerRadius: 12))
+            Text("Fills the app with a sample year of data to show what Index can do. Your real data is kept completely separate and is restored when you turn this off. The app will close so you can reopen it.")
+                .font(.caption2)
+                .foregroundStyle(IndexPalette.Text.secondary)
+                .padding(.horizontal, 4)
+        }
+        .alert(
+            pendingDemoToggleValue == true
+                ? "Switch to demo data?"
+                : "Switch back to your real data?",
+            isPresented: Binding(
+                get: { pendingDemoToggleValue != nil },
+                set: { if !$0 { cancelDemoToggle() } }
+            )
+        ) {
+            Button("Restart", role: .destructive, action: confirmDemoToggle)
+            Button("Cancel", role: .cancel, action: cancelDemoToggle)
+        } message: {
+            Text("Index needs to restart to switch data. Your real data is safe and separate. The app will close — reopen it to continue.")
+        }
+        .confirmationDialog(
+            "Reset demo data?",
+            isPresented: $showDemoResetConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive, action: performDemoReset)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Deletes the synthetic year and regenerates a fresh one on next launch. The app will close — reopen it to continue.")
+        }
+    }
+
+    private func requestDemoToggle(_ newValue: Bool) {
+        // Mirror flips immediately so the switch animates, then
+        // we stage the new value and surface the confirm alert.
+        // On cancel we restore the mirror; on confirm we persist
+        // the staged value and exit.
+        demoToggleMirror = newValue
+        pendingDemoToggleValue = newValue
+    }
+
+    private func cancelDemoToggle() {
+        // Revert the optimistic toggle and clear the staged value.
+        demoToggleMirror = DemoMode.isEnabled
+        pendingDemoToggleValue = nil
+    }
+
+    private func confirmDemoToggle() {
+        guard let target = pendingDemoToggleValue else { return }
+        DemoMode.setEnabled(target)
+        pendingDemoToggleValue = nil
+        // Give the alert dismiss a tick to settle visually, then
+        // exit. The user reopens; IndexApp reads the new flag and
+        // builds the container against the right store.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            exit(0)
+        }
+    }
+
+    private func performDemoReset() {
+        // Wipe the synthetic year and exit. On reopen, the demo
+        // store is empty so ContentView.seedFreshDataset
+        // regenerates it.
+        DemoMode.deleteDemoStoreFiles()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            exit(0)
         }
     }
 

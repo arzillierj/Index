@@ -100,14 +100,20 @@ struct BodyView: View {
     // MARK: - Page title
 
     private var pageTitle: some View {
-        Text("Body")
-            .font(.largeTitle.weight(.bold))
-            .foregroundStyle(IndexPalette.Module.body)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Breathing room above the cap-height — without it
-            // the glyph tops sit flush against the safe-area
-            // boundary and read as clipped at the top edge.
-            .padding(.top, 6)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Body")
+                .font(.largeTitle.weight(.bold))
+                .foregroundStyle(IndexPalette.Module.body)
+            // Demo-mode pill — collapses to EmptyView when the
+            // flag is off, so the title sits exactly where it
+            // did before in normal mode.
+            DemoBadge()
+            Spacer(minLength: 0)
+        }
+        // Breathing room above the cap-height — without it
+        // the glyph tops sit flush against the safe-area
+        // boundary and read as clipped at the top edge.
+        .padding(.top, 6)
     }
 
     // MARK: - Brain insight

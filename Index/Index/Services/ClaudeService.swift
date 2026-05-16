@@ -200,6 +200,14 @@ final class ClaudeService {
         from imageData: Data,
         in context: ModelContext
     ) async throws -> MacroEstimate {
+        // 0. Demo gate. Demo mode is entirely offline + free —
+        //    no Anthropic network calls, no AIUsageRecord writes,
+        //    so the Settings month-to-date spend figure never
+        //    reflects synthetic usage. Surfaces as a distinct
+        //    error so the camera screen can show a demo-aware
+        //    message rather than the no-key prompt.
+        guard !DemoMode.isEnabled else { throw ClaudeServiceError.demoModeActive }
+
         // 1. Key gate. No key → no call.
         guard let key = apiKey() else { throw ClaudeServiceError.noAPIKey }
 
@@ -419,6 +427,7 @@ enum ClaudeServiceError: Error, LocalizedError {
     case network(Error)
     case couldNotParse
     case notFood
+    case demoModeActive
 
     var errorDescription: String? {
         switch self {
@@ -432,6 +441,8 @@ enum ClaudeServiceError: Error, LocalizedError {
             return "Couldn't estimate that photo. Try again, or enter manually."
         case .notFood:
             return "That doesn't look like food. Try another photo."
+        case .demoModeActive:
+            return "AI estimates are off in demo mode. Turn demo mode off in Settings or enter the meal manually."
         }
     }
 }

@@ -18,13 +18,29 @@ struct IndexApp: App {
     /// (passed to `.modelContainer(...)` for SwiftData wiring) and the
     /// HealthKitService construction (audit H10) reference the same
     /// container. The closure runs once on first access.
+    ///
+    /// Demo mode: when `DemoMode.isEnabled` is true at launch, the
+    /// container is built against a physically separate SQLite store
+    /// (`Index-demo.store` in Application Support) instead of the
+    /// real store (`default.store`). The two stores are never both
+    /// open in the same process — only one ModelConfiguration is
+    /// constructed per launch, gated by the flag. Flipping the
+    /// toggle in Settings writes the new flag value and calls
+    /// `exit(0)`; the next launch opens the other store. This is
+    /// the entire mechanism that keeps demo data isolated from real
+    /// data: distinct files on disk, never co-resident.
     private static let sharedContainer: ModelContainer = {
         let schema = Schema(IndexSchema.models)
         // Local SwiftData store. CloudKit is intentionally NOT configured
         // yet — pending paid Developer Program enrollment. When enabled,
         // ModelConfiguration adds `cloudKitDatabase: .private(...)` and
         // the model list ships unchanged.
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let config: ModelConfiguration = {
+            if DemoMode.isEnabled, let demoURL = DemoMode.demoStoreURL() {
+                return ModelConfiguration(schema: schema, url: demoURL)
+            }
+            return ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        }()
 
         do {
             return try ModelContainer(for: schema, configurations: [config])
@@ -87,12 +103,15 @@ struct IndexApp: App {
         .modelContainer(modelContainer)
     }
 
-    /// Removes the SwiftData store files from Application Support so the
-    /// next ModelContainer init starts from scratch. Used by the
-    /// migration-failure recovery path above.
+    /// Removes the SwiftData store files for the **currently active**
+    /// store (real or demo) from Application Support so the next
+    /// ModelContainer init starts from scratch. Used by the
+    /// migration-failure recovery path above. The other store is
+    /// untouched — that's the whole point of physical isolation.
     ///
-    /// The default file names are `default.store`, `default.store-shm`,
-    /// and `default.store-wal` (SQLite WAL companions).
+    /// File names are `<base>.store`, `<base>.store-shm`, and
+    /// `<base>.store-wal` (SQLite WAL companions). Base is
+    /// `default` for real mode and `Index-demo` for demo mode.
     private static func deleteStoreFiles() {
         let fm = FileManager.default
         guard let supportURL = try? fm.url(
@@ -102,8 +121,12 @@ struct IndexApp: App {
             create: false
         ) else { return }
 
+        let base = DemoMode.isEnabled
+            ? DemoMode.demoStoreFilename.replacingOccurrences(of: ".store", with: "")
+            : "default"
+
         for suffix in ["", "-shm", "-wal"] {
-            let url = supportURL.appendingPathComponent("default.store\(suffix)")
+            let url = supportURL.appendingPathComponent("\(base).store\(suffix)")
             try? fm.removeItem(at: url)
         }
     }

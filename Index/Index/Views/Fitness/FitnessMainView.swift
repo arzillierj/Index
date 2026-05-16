@@ -128,12 +128,15 @@ struct FitnessMainView: View {
     // MARK: - Page title
 
     private var pageTitle: some View {
-        Text("Fitness")
-            .font(.largeTitle.weight(.bold))
-            .foregroundStyle(IndexPalette.Module.fitness)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Breathing room above the cap-height — see BodyView.
-            .padding(.top, 6)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Fitness")
+                .font(.largeTitle.weight(.bold))
+                .foregroundStyle(IndexPalette.Module.fitness)
+            DemoBadge()
+            Spacer(minLength: 0)
+        }
+        // Breathing room above the cap-height — see BodyView.
+        .padding(.top, 6)
     }
 
     // MARK: - Backfill banner

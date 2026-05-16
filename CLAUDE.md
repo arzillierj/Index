@@ -140,6 +140,14 @@ Commit after every numbered step in the takeover doc. Don't batch multiple steps
 - **Don't build empty states later.** Build them as each screen lands.
 - **`@Query` directly in views.** No ViewModels.
 
+## Demo mode
+
+- Demo data lives in a **physically separate SwiftData store** (`Index-demo.store` in Application Support), not the real `default.store`. `IndexApp.sharedContainer` reads `DemoMode.isEnabled` once at launch and binds the `ModelConfiguration` to exactly one URL — only one store is open per process. This is the **entire** isolation mechanism: no `isDemo` flag on any model, no `@Query` filter, no predicate gymnastics. Don't add any.
+- Demo and real data must **never** share a store. If you ever find yourself writing code that reads from both, back up and re-read this section.
+- Demo mode is **offline + free**. `ClaudeService.estimateMacros` throws `.demoModeActive` at the top so no Anthropic network call ever happens in demo. The `AIUsageRecord` ledger must always reflect real spend only — the Settings "month-to-date spend" figure would lie if seeded. Same applies to any future networked feature: gate early on `DemoMode.isEnabled`.
+- HK bootstrap is skipped when demo mode is on (`ContentView.task` gates `bootstrapIfAuthorized` on `!DemoMode.isEnabled`). Importing real HK data into the demo store would mix sources.
+- Switching the toggle requires `exit(0)`. iOS apps can't truly self-relaunch — the alert wording sets the expectation.
+
 ## Things explicitly NOT in v1
 
 Do not implement these. They were considered and cut.
