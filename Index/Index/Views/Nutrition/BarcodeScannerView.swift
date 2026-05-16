@@ -5,20 +5,19 @@ import UIKit
 
 // MARK: - Public SwiftUI wrapper
 //
-// Live camera screen. Meal-photo capture is the default posture;
-// barcode lookup is a quiet background offer.
+// Live camera screen. Two paths share one preview:
 //
-//   1. Free path — barcode tap-to-confirm. The metadata output
+//   1. Free path — barcode auto-fire. The metadata output
 //      watches the full camera feed continuously (no aiming
-//      rectangle — AVFoundation never needed one). When a code is
-//      detected, a chip slides up above the bottom controls
-//      ("Barcode detected — tap to look up"). The chip stays
-//      visible while detections keep arriving and slides away
-//      after a 2-second grace period without a fresh detection.
-//      Tapping the chip routes through `onDetect` to the existing
-//      OpenFoodFacts lookup. Auto-fire is deliberately removed —
-//      a meal photographer sweeping across a table should not get
-//      yanked into a barcode result they didn't ask for.
+//      rectangle — AVFoundation doesn't need one). When the
+//      same barcode value has been detected continuously for
+//      ~0.6s the OpenFoodFacts lookup fires automatically via
+//      `onDetect`. The stability window prevents a barcode that
+//      sweeps past the edge of frame for a single detection
+//      from hijacking a meal-photo capture. Within one camera
+//      presentation, each barcode value fires at most once —
+//      reopening the camera after dismissing the result resets
+//      the fired state.
 //
 //   2. AI path — meal-photo macro estimate. Shutter button
 //      captures a still via AVCapturePhotoOutput; the gallery
@@ -29,9 +28,9 @@ import UIKit
 //      on success.
 
 struct BarcodeScannerView: View {
-    /// Called when the user taps the barcode chip — semantics
-    /// changed from the original auto-fire flow. Detection alone
-    /// no longer triggers this; user confirmation does.
+    /// Fires when a stable barcode detection clears the
+    /// stability window. Parent runs the OpenFoodFacts lookup
+    /// and routes to the result sheet.
     let onDetect: (String) -> Void
     /// Fires with the captured / picked image data. Parent runs
     /// the AI estimate + handles dismissal on success.
@@ -62,23 +61,35 @@ struct BarcodeScannerView: View {
     /// `onPhotoCaptured` and reset.
     @State private var pickedItem: PhotosPickerItem? = nil
 
-    /// The barcode currently "available" to the user — set when
-    /// the metadata delegate sees a code, cleared 2s after the
-    /// last fresh detection. nil = no chip visible.
-    @State private var detectedBarcode: String? = nil
+    /// Stability tracking. `candidateCode` is the barcode value
+    /// we're currently watching; `candidateFirstSeenAt` is when
+    /// it first appeared in this run of continuous detections.
+    /// Once `now - candidateFirstSeenAt >= stabilityWindow` and
+    /// the code hasn't already fired in this presentation, the
+    /// lookup auto-fires. `lastDetectionAt` is used to detect
+    /// long gaps (>gapResetWindow) — a gap resets the candidate
+    /// so a stale code doesn't carry over after the barcode left
+    /// frame. `lastFiredCode` blocks re-firing for the same code
+    /// during a single presentation of this view.
+    @State private var candidateCode: String? = nil
+    @State private var candidateFirstSeenAt: Date = .distantPast
+    @State private var lastDetectionAt: Date = .distantPast
+    @State private var lastFiredCode: String? = nil
 
-    /// Grace-period task. Cancelled and re-spawned on every fresh
-    /// detection so a continuously-in-frame barcode keeps the
-    /// chip alive; stale detections (barcode left frame) fall
-    /// through the 2-second sleep and clear the state.
-    @State private var graceTask: Task<Void, Never>? = nil
+    /// How long the SAME barcode must be visible continuously
+    /// before auto-fire. Chosen at 0.6s — long enough that a
+    /// barcode sweeping past the edge of frame during a meal-
+    /// photo framing pass won't cross the threshold; short
+    /// enough that a deliberate point-at-the-barcode feels
+    /// instant.
+    private static let stabilityWindow: TimeInterval = 0.6
 
-    /// 2-second grace period before a stale detection drops away.
-    /// Long enough to span the gap between AVFoundation's last
-    /// in-frame fire and the user noticing the chip; short enough
-    /// that a fleeting drift across frame doesn't leave a stale
-    /// invitation hanging.
-    private static let chipGracePeriod: Duration = .seconds(2)
+    /// If the gap between two detections of the same code
+    /// exceeds this, the candidate is reset and the stability
+    /// window starts over. Prevents a code seen 5 seconds ago
+    /// (then absent, then re-seen) from auto-firing on the
+    /// strength of stale time accumulated earlier.
+    private static let gapResetWindow: TimeInterval = 0.8
 
     var body: some View {
         ZStack {
@@ -102,11 +113,9 @@ struct BarcodeScannerView: View {
                 ScannerOverlayView(
                     onCancel: onCancel,
                     onShutter: { captureProxy.capture?() },
-                    onBarcodeChipTapped: confirmDetectedBarcode,
                     pickedItem: $pickedItem,
                     isEstimating: isEstimating,
-                    inlineMessage: inlineMessage,
-                    detectedBarcode: detectedBarcode
+                    inlineMessage: inlineMessage
                 )
             }
         }
@@ -121,35 +130,49 @@ struct BarcodeScannerView: View {
                 pickedItem = nil
             }
         }
-        .onDisappear {
-            graceTask?.cancel()
-        }
     }
 
-    /// Per-detection callback from the controller. Sets the chip
-    /// state + restarts the grace-period clock. Ignored while
-    /// the parent's AI estimate is in flight so the chip doesn't
-    /// surface during the loading state (shutter is disabled
-    /// then too — keep the screen single-tasked).
+    /// Per-detection callback from the controller. Maintains the
+    /// stability window and auto-fires `onDetect` when the same
+    /// code has been continuously visible for ≥ `stabilityWindow`.
+    /// Ignored while the parent's AI estimate is in flight so
+    /// detections during the loading overlay don't queue up.
+    ///
+    /// The controller reports detections at roughly the
+    /// `reportThrottle` cadence (0.15s) per code, so the window
+    /// accumulates several samples before firing — a single-
+    /// frame sweep through frame never crosses the threshold.
     private func receiveDetection(_ code: String) {
         guard !isEstimating else { return }
-        detectedBarcode = code
-        graceTask?.cancel()
-        graceTask = Task { @MainActor in
-            try? await Task.sleep(for: Self.chipGracePeriod)
-            guard !Task.isCancelled else { return }
-            detectedBarcode = nil
-        }
-    }
+        let now = Date.now
 
-    /// Chip tap — user confirms the barcode lookup. Clears state
-    /// + routes to the parent's existing `onDetect` callback
-    /// (which kicks off the OpenFoodFacts lookup).
-    private func confirmDetectedBarcode() {
-        guard let code = detectedBarcode else { return }
-        graceTask?.cancel()
-        detectedBarcode = nil
-        onDetect(code)
+        // Already fired for this code during this presentation.
+        // Note the detection time (so a long absence still
+        // resets the gap detector for OTHER codes), but skip
+        // the rest.
+        if code == lastFiredCode {
+            lastDetectionAt = now
+            return
+        }
+
+        let gap = now.timeIntervalSince(lastDetectionAt)
+        lastDetectionAt = now
+
+        // New code, or a too-long gap since the previous
+        // detection — start the stability window over.
+        if candidateCode != code || gap > Self.gapResetWindow {
+            candidateCode = code
+            candidateFirstSeenAt = now
+            return
+        }
+
+        // Same code, continuous. Fire if we've cleared the window.
+        let elapsed = now.timeIntervalSince(candidateFirstSeenAt)
+        if elapsed >= Self.stabilityWindow {
+            lastFiredCode = code
+            candidateCode = nil
+            onDetect(code)
+        }
     }
 
     private func setupFailureView(reason: String) -> some View {
@@ -249,11 +272,15 @@ final class ScannerViewController: UIViewController,
 
     /// Last code we surfaced + when, for throttling. AVFoundation
     /// can fire metadata at the camera's frame rate (~30 Hz) when
-    /// a barcode sits in view; the chip's grace-period timer only
-    /// needs a tick every second or so to stay alive.
+    /// a barcode sits in view. We throttle to ~6.5 Hz so the
+    /// SwiftUI parent's stability-window math gets several
+    /// samples per second without re-rendering 30× per second.
+    /// The throttle is tighter than the chip-era 0.5s value
+    /// because the parent now needs enough samples within a
+    /// 0.6s stability window to confirm continuous detection.
     private var lastReportedCode: String?
     private var lastReportedAt: Date = .distantPast
-    private static let reportThrottle: TimeInterval = 0.5
+    private static let reportThrottle: TimeInterval = 0.15
 
     init(
         onScan: @escaping (String) -> Void,
@@ -363,10 +390,9 @@ final class ScannerViewController: UIViewController,
         guard let obj = objects.first as? AVMetadataMachineReadableCodeObject,
               let code = obj.stringValue else { return }
         // Throttle: a new code fires immediately; the same code
-        // re-firing only ticks every reportThrottle seconds so the
-        // SwiftUI parent doesn't redraw the chip 30× per second.
-        // The grace-period timer in the SwiftUI side only needs a
-        // tick every couple of seconds to stay alive.
+        // re-firing only ticks every reportThrottle (0.15s) so
+        // the SwiftUI parent's stability window has a steady ~6
+        // Hz stream of samples without redrawing 30× per second.
         let now = Date.now
         if code == lastReportedCode,
            now.timeIntervalSince(lastReportedAt) < Self.reportThrottle {
@@ -428,21 +454,17 @@ final class ScannerViewController: UIViewController,
 //
 // Meal-capture-first overlay. No framing rectangle, no scan
 // line, no vignette — the camera feed shows full-frame and
-// undimmed. The barcode capability is a tap-to-confirm chip that
-// only appears when a code is actually in frame (parent-managed
-// via `detectedBarcode`).
+// undimmed. The barcode path is silent in the UI: detection +
+// stability-window auto-fire happens in the SwiftUI parent;
+// there's no chip, no confirmation step. The overlay just
+// frames the camera + the meal-photo controls.
 
 private struct ScannerOverlayView: View {
     let onCancel: () -> Void
     let onShutter: () -> Void
-    let onBarcodeChipTapped: () -> Void
     @Binding var pickedItem: PhotosPickerItem?
     let isEstimating: Bool
     let inlineMessage: String?
-    /// nil → no chip. Non-nil → chip slides up offering the
-    /// lookup for this code. The parent owns the grace-period
-    /// clock; this view only renders.
-    let detectedBarcode: String?
 
     var body: some View {
         VStack {
@@ -485,29 +507,6 @@ private struct ScannerOverlayView: View {
                     .background(IndexPalette.Semantic.warning.opacity(0.85), in: Capsule())
                     .padding(.horizontal, 24)
                     .padding(.bottom, 8)
-            }
-
-            // Barcode chip — slides in from the bottom edge when
-            // a code is in frame; slides out when the grace
-            // period elapses. Disabled during an in-flight AI
-            // estimate so the screen stays single-tasked.
-            if detectedBarcode != nil {
-                Button(action: onBarcodeChipTapped) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "barcode.viewfinder")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text("Barcode detected — tap to look up")
-                            .font(.system(size: 14, weight: .medium))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(.black.opacity(0.78), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(isEstimating)
-                .padding(.bottom, 12)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             // Caption above the shutter row.
@@ -555,6 +554,5 @@ private struct ScannerOverlayView: View {
             .padding(.horizontal, 32)
             .padding(.bottom, 36)
         }
-        .animation(.easeOut(duration: 0.25), value: detectedBarcode)
     }
 }
