@@ -198,46 +198,8 @@ Phase 7 closed before the post-Phase-7 follow-ups above. What landed:
 
 ---
 
-## Carry-forward (Medium / Low priority — Phase 8 polish window)
+## Carry-forward + long-term backlog
 
-Audit Medium-tier items that didn't ship in the Phase 5 rounds. Numbered M1–M18 in the original audit; these are the ones still pending:
-
-| M | Item | Notes |
-|---|---|---|
-| M1 | `print` → `os.Logger` (5 sites) | IndexApp:27, HealthKitService:81, BarcodeResultSheet:285/290/350 |
-| M2 | `HealthKitService.saveWeight` is now instance method (paired with H4) | Already shipped in H4 |
-| M3 | `SWIFT_STRICT_CONCURRENCY = complete` explicit setting | |
-| M4 | FitnessMainView sheet sequencing — replace `asyncAfter(0.4)` with `.sheet(onDismiss:)` chain | |
-| M5 | `Profile.hasProteinTarget` companion (additive schema bump) | Allows distinguishing default-150 from user-set-150; ties into Phase 7 Settings |
-| M6 | Log unmapped HKWorkoutActivityType for telemetry-style `print` | |
-| M7 | Combine `fetchAvgHeartRate` + `fetchMaxHeartRate` into one HK round-trip | |
-| M8 | HK observer-stop API | **Now ships with Phase 7** |
-| M9 | WeightEntry input range validation at HK auto-import path | Defense-in-depth against the 5×10³⁸ class of incident at the *write* path |
-| M10 | Hoist formatters (`RelativeDateTimeFormatter`, `DateFormatter`, `UINotificationFeedbackGenerator`) to `static let` | Multi-site |
-| M11 | Centralize `WeightSource.caption` on the enum | Currently triplicated across BodyView, WeightHistoryView, WeightEntryDetailSheet |
-| M12 | Force-unwrapped URL in `OpenFoodFactsService` | `URL(string: ...)!` with throwing `URLComponents` |
-| M13 | `StrengthLibraryView` swipe → confirmation dialog | DQ4 made the action soft-hide so this is less destructive than it was, but still worth a confirm |
-| M14 | Extract magic numbers in `MetricsEngine` (1200 kcal floor, 1.1 BMR safety, 0.01 weekly-rate threshold) | |
-| M15 | `BrainService.mealGapHours` cap fallback at 36 hours | Prevents "168 hours" rendering for empty-week users |
-| M16 | `BrainService.hrvTrendPct` `.isFinite` guards on latest/baseline | |
-| M17 | DQ1 — Optional<DailyTargets> when no weight | Suppress brain insights on day-one (no logged weight, no target) |
-| M18 | Apply same `asyncAfter` cleanup to `NutritionMainView.routeAfterScanner` etc. | Mirrors M4 |
-
-Low-priority cosmetic items (icon-only button accessibility labels, fixed-size hero font Dynamic Type scaling, etc.) are tracked in the audit transcript and will be addressed during the design pass.
-
----
-
-## Long-term backlog (post-v1)
-
-From the v0 carryover + audit notes:
-
-- **Cycling route view** — `WorkoutDetailView` cycling section has a placeholder "coming in a later release" tile.
-- **Tanaka HR-zone breakdown** on `WorkoutDetailView` — the chart is live for every workout type now (via `fetchHRSeries`); the per-zone summary is the next step.
-- **Imperial display units** — `MetricsEngine.kgToLbs` etc. exist but no view branches on `Profile.units`.
-- **Swift 5 → Swift 6 build mode bump** (DQ9) — defer.
-- **Multi-orphan profile picker** in Settings (today only the count==1 case auto-stages a migration prompt).
-- **Sign in with Apple** swap (`AppleSignInIdentityService` non-trapping stubs already in place per H7) — fill the four method bodies post paid Developer Program enrollment, flip `AppDependencies.identity`.
-- **CloudKit private database** — single `ModelConfiguration` change (add `cloudKitDatabase: .private(...)`) post enrollment.
-- **Custom launch screen + app icon design pass** — current icon shipped (`I.` wordmark with green accent dot, commit `c846d97`); custom launch screen is auto-generated.
+Both moved to `BACKLOG.md` (single source for everything not yet built).
 
 Shipped from prior backlog: **AI photo-to-macros** (revived via the AI macro estimator), **HR series on every workout type** (live fetch via `fetchHRSeries`), **Sleep tile** on Body ("Time asleep" replaced the static Ideal range tile).
